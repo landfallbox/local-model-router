@@ -28,7 +28,7 @@ Internally, it tries enabled vendors in priority order. If the primary vendor ti
 ## Quick Start
 
 ```powershell
-git clone https://github.com/your-org/local-model-router.git
+git clone https://github.com/landfallbox/local-model-router.git
 cd local-model-router
 npm install
 copy config.example.json config.json

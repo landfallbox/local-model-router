@@ -5,7 +5,7 @@ Thanks for helping maintain Local Model Router.
 ## Development Setup
 
 ```powershell
-git clone https://github.com/your-org/local-model-router.git
+git clone https://github.com/landfallbox/local-model-router.git
 cd local-model-router
 npm ci
 npm run check
