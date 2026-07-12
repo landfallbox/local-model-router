@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Model Gateway icon candidate</title>
+  <desc id="desc">A blue gateway diamond inside a dark rounded square with three output routes.</desc>
+  <defs>
+    <linearGradient id="bg" x1="72" y1="72" x2="444" y2="444" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#101827"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="gate" x1="172" y1="140" x2="340" y2="372" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#93c5fd"/>
+      <stop offset="0.54" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <filter id="shadow" x="18" y="22" width="476" height="478" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="22" stdDeviation="20" flood-color="#020617" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="48" y="48" width="416" height="416" rx="96" fill="url(#bg)" filter="url(#shadow)"/>
+  <path d="M256 124L386 256L256 388L126 256L256 124Z" fill="url(#gate)"/>
+  <path d="M256 172V340" stroke="#eff6ff" stroke-width="34" stroke-linecap="round"/>
+  <path d="M256 256H348" stroke="#eff6ff" stroke-width="34" stroke-linecap="round"/>
+  <path d="M256 256H164" stroke="#eff6ff" stroke-width="34" stroke-linecap="round" opacity="0.86"/>
+  <circle cx="256" cy="256" r="38" fill="#101827"/>
+  <circle cx="256" cy="172" r="25" fill="#ecfdf5"/>
+  <circle cx="348" cy="256" r="25" fill="#ecfdf5"/>
+  <circle cx="256" cy="340" r="25" fill="#ecfdf5"/>
+  <circle cx="164" cy="256" r="25" fill="#ecfdf5" opacity="0.92"/>
+</svg>

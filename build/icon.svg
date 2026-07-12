@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Local Model Router</title>
+  <desc id="desc">A dark rounded square with layered model blocks and a routed blue signal.</desc>
+  <defs>
+    <linearGradient id="bg" x1="58" y1="52" x2="454" y2="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#172033"/>
+      <stop offset="1" stop-color="#070d19"/>
+    </linearGradient>
+    <linearGradient id="route" x1="170" y1="155" x2="350" y2="355" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#93c5fd"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <filter id="shadow" x="18" y="22" width="476" height="478" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="22" stdDeviation="20" flood-color="#020617" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="48" y="48" width="416" height="416" rx="104" fill="url(#bg)" filter="url(#shadow)"/>
+  <rect x="140" y="142" width="232" height="66" rx="24" fill="#eff6ff"/>
+  <rect x="140" y="223" width="232" height="66" rx="24" fill="#dbeafe"/>
+  <rect x="140" y="304" width="232" height="66" rx="24" fill="#bfdbfe"/>
+  <path d="M190 175H322" stroke="#2563eb" stroke-width="18" stroke-linecap="round"/>
+  <path d="M190 256H322" stroke="#2563eb" stroke-width="18" stroke-linecap="round"/>
+  <path d="M190 337H322" stroke="#2563eb" stroke-width="18" stroke-linecap="round"/>
+  <path d="M256 175C314 196 314 235 256 256C198 277 198 316 256 337" fill="none" stroke="url(#route)" stroke-width="34" stroke-linecap="round"/>
+  <circle cx="256" cy="175" r="30" fill="#101827"/>
+  <circle cx="256" cy="256" r="30" fill="#101827"/>
+  <circle cx="256" cy="337" r="30" fill="#101827"/>
+  <circle cx="256" cy="175" r="12" fill="#60a5fa"/>
+  <circle cx="256" cy="256" r="12" fill="#60a5fa"/>
+  <circle cx="256" cy="337" r="12" fill="#60a5fa"/>
+</svg>

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local Model Router Icon Candidates</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f6f8;
+        --surface: #ffffff;
+        --text: #111827;
+        --muted: #5b6472;
+        --line: #d9e0e7;
+        --primary: #2563eb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+
+      main {
+        width: min(1180px, calc(100vw - 48px));
+        margin: 0 auto;
+        padding: 36px 0 48px;
+      }
+
+      header {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 24px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        letter-spacing: 0;
+      }
+
+      p {
+        max-width: 720px;
+        margin: 8px 0 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .card {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        gap: 22px;
+        align-items: center;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .hero-icon {
+        width: 220px;
+        height: 220px;
+      }
+
+      .name {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .file {
+        margin-top: 4px;
+        color: var(--primary);
+        font-size: 13px;
+      }
+
+      .sizes {
+        display: flex;
+        align-items: end;
+        gap: 18px;
+        margin-top: 22px;
+        padding: 16px;
+        border-radius: 8px;
+        background: #f8fafc;
+      }
+
+      .sample {
+        display: grid;
+        gap: 8px;
+        justify-items: center;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .sample img {
+        display: block;
+      }
+
+      @media (max-width: 980px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        main {
+          width: min(100vw - 28px, 560px);
+          padding-top: 24px;
+        }
+
+        header,
+        .card {
+          display: block;
+        }
+
+        .hero-icon {
+          width: 180px;
+          height: 180px;
+          margin-bottom: 18px;
+        }
+
+        .sizes {
+          overflow-x: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Local Model Router Icon Candidates</h1>
+          <p>Four original SVG directions using the app's current blue and dark sidebar palette. Review the large mark and the small Windows-style sizes before choosing one.</p>
+        </div>
+      </header>
+      <section class="grid" aria-label="Icon candidates">
+        <article class="card">
+          <img class="hero-icon" src="./route-core.svg" alt="Route Core" />
+          <div>
+            <h2 class="name">01 Route Core</h2>
+            <div class="file">route-core.svg</div>
+            <p>Most product-like. Emphasizes routing and failover between model providers.</p>
+            <div class="sizes" aria-label="Route Core sizes">
+              <span class="sample"><img src="./route-core.svg" width="96" height="96" alt="" />96</span>
+              <span class="sample"><img src="./route-core.svg" width="48" height="48" alt="" />48</span>
+              <span class="sample"><img src="./route-core.svg" width="32" height="32" alt="" />32</span>
+              <span class="sample"><img src="./route-core.svg" width="16" height="16" alt="" />16</span>
+            </div>
+          </div>
+        </article>
+        <article class="card">
+          <img class="hero-icon" src="./model-gateway.svg" alt="Model Gateway" />
+          <div>
+            <h2 class="name">02 Model Gateway</h2>
+            <div class="file">model-gateway.svg</div>
+            <p>Sharper and more technical. Reads as a gateway that receives and dispatches requests.</p>
+            <div class="sizes" aria-label="Model Gateway sizes">
+              <span class="sample"><img src="./model-gateway.svg" width="96" height="96" alt="" />96</span>
+              <span class="sample"><img src="./model-gateway.svg" width="48" height="48" alt="" />48</span>
+              <span class="sample"><img src="./model-gateway.svg" width="32" height="32" alt="" />32</span>
+              <span class="sample"><img src="./model-gateway.svg" width="16" height="16" alt="" />16</span>
+            </div>
+          </div>
+        </article>
+        <article class="card">
+          <img class="hero-icon" src="./switchboard.svg" alt="Switchboard" />
+          <div>
+            <h2 class="name">03 Switchboard</h2>
+            <div class="file">switchboard.svg</div>
+            <p>Lighter Windows-app feel. Strong small-size readability with clear switching paths.</p>
+            <div class="sizes" aria-label="Switchboard sizes">
+              <span class="sample"><img src="./switchboard.svg" width="96" height="96" alt="" />96</span>
+              <span class="sample"><img src="./switchboard.svg" width="48" height="48" alt="" />48</span>
+              <span class="sample"><img src="./switchboard.svg" width="32" height="32" alt="" />32</span>
+              <span class="sample"><img src="./switchboard.svg" width="16" height="16" alt="" />16</span>
+            </div>
+          </div>
+        </article>
+        <article class="card">
+          <img class="hero-icon" src="./model-stack.svg" alt="Model Stack" />
+          <div>
+            <h2 class="name">04 Model Stack</h2>
+            <div class="file">model-stack.svg</div>
+            <p>More explicit about multiple model backends. Slightly denser than the others.</p>
+            <div class="sizes" aria-label="Model Stack sizes">
+              <span class="sample"><img src="./model-stack.svg" width="96" height="96" alt="" />96</span>
+              <span class="sample"><img src="./model-stack.svg" width="48" height="48" alt="" />48</span>
+              <span class="sample"><img src="./model-stack.svg" width="32" height="32" alt="" />32</span>
+              <span class="sample"><img src="./model-stack.svg" width="16" height="16" alt="" />16</span>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

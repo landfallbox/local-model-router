@@ -1,0 +1,36 @@
+{
+  "router": {
+    "host": "127.0.0.1",
+    "port": 4000,
+    "apiKey": "replace-with-a-local-router-token",
+    "requestTimeoutMs": 30000,
+    "maxBodyBytes": 52428800,
+    "fallbackStatusCodes": [408, 409, 425, 429, 500, 502, 503, 504],
+    "logFile": "logs/router.log"
+  },
+  "model": {
+    "id": "model-id",
+    "name": "Model Name",
+    "ownedBy": "local-router",
+    "maxInputTokens": 200000,
+    "maxOutputTokens": 64000
+  },
+  "vendors": [
+    {
+      "name": "primary-vendor",
+      "baseUrl": "https://api.primary.example/v1",
+      "model": "model-id",
+      "authentication": "api-key",
+      "apiKey": "replace-with-primary-vendor-key",
+      "enabled": false
+    },
+    {
+      "name": "fallback-vendor",
+      "baseUrl": "https://api.fallback.example/v1",
+      "model": "model-id",
+      "authentication": "api-key",
+      "apiKey": "replace-with-fallback-vendor-key",
+      "enabled": false
+    }
+  ]
+}

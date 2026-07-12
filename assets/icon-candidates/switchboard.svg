@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Switchboard icon candidate</title>
+  <desc id="desc">A light app tile containing a dark switchboard panel and routed connection lines.</desc>
+  <defs>
+    <linearGradient id="tile" x1="70" y1="58" x2="442" y2="454" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dbeafe"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="126" y1="122" x2="386" y2="390" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#172033"/>
+      <stop offset="1" stop-color="#101827"/>
+    </linearGradient>
+    <filter id="shadow" x="18" y="24" width="476" height="474" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="24" stdDeviation="22" flood-color="#64748b" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+  <rect x="48" y="48" width="416" height="416" rx="110" fill="url(#tile)" filter="url(#shadow)"/>
+  <rect x="118" y="118" width="276" height="276" rx="64" fill="url(#panel)"/>
+  <path d="M176 205H236C249 205 256 212 256 225V287C256 300 263 307 276 307H336" fill="none" stroke="#60a5fa" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M176 307H222C235 307 242 300 242 287V225C242 212 249 205 262 205H336" fill="none" stroke="#a7f3d0" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>
+  <circle cx="176" cy="205" r="26" fill="#eff6ff"/>
+  <circle cx="176" cy="307" r="26" fill="#eff6ff"/>
+  <circle cx="336" cy="205" r="26" fill="#eff6ff"/>
+  <circle cx="336" cy="307" r="26" fill="#eff6ff"/>
+  <circle cx="176" cy="205" r="11" fill="#2563eb"/>
+  <circle cx="176" cy="307" r="11" fill="#047857"/>
+  <circle cx="336" cy="205" r="11" fill="#2563eb"/>
+  <circle cx="336" cy="307" r="11" fill="#047857"/>
+</svg>

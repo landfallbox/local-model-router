@@ -1,0 +1,109 @@
+{
+  "name": "local-model-router",
+  "productName": "Local Model Router",
+  "version": "0.1.0",
+  "description": "Local OpenAI-compatible model router with vendor failover.",
+  "author": "tang",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/local-model-router.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/local-model-router/issues"
+  },
+  "homepage": "https://github.com/your-org/local-model-router#readme",
+  "keywords": [
+    "openai-compatible",
+    "model-router",
+    "fallback",
+    "electron"
+  ],
+  "type": "module",
+  "main": "gui/electron/main.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/config.js && node --check src/server.js && node --check src/healthcheck.js && node --check gui/electron/main.js && node --check gui/electron/preload.cjs && node --check scripts/start-electron-dev.mjs",
+    "test": "node test/fallback-smoke.test.js",
+    "health": "node src/healthcheck.js",
+    "gui": "node scripts/start-electron-dev.mjs",
+    "gui:dev": "node scripts/start-electron-dev.mjs",
+    "gui:build": "vite build --config gui/vite.config.js --configLoader runner",
+    "gui:preview": "npm run gui:build && electron .",
+    "icons:build": "node scripts/build-icons.mjs",
+    "dist:windows": "npm run icons:build && npm run gui:build && node scripts/prepare-electron-builder.mjs && electron-builder --win nsis --x64",
+    "dist:windows:dir": "npm run icons:build && npm run gui:build && node scripts/prepare-electron-builder.mjs && electron-builder --win dir --x64"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.1",
+    "electron-builder": "^26.15.3",
+    "vite": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "build": {
+    "appId": "local.local-model-router",
+    "productName": "Local Model Router",
+    "directories": {
+      "output": "release"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "files": [
+      "package.json",
+      "config.example.json",
+      "gui/electron/**/*",
+      "gui/dist/**/*",
+      "src/**/*"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "src/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/bin",
+        "to": "bin",
+        "filter": [
+          "node.exe"
+        ]
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "assets/icon.ico"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "legalTrademarks": "Local Model Router",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName} Setup ${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Local Model Router",
+      "include": "build/installer.nsh",
+      "installerIcon": "build/installerIcon.ico",
+      "uninstallerIcon": "build/uninstallerIcon.ico",
+      "uninstallDisplayName": "Local Model Router"
+    }
+  }
+}

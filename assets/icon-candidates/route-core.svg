@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Route Core icon candidate</title>
+  <desc id="desc">A dark rounded square with connected route nodes and a blue core.</desc>
+  <defs>
+    <linearGradient id="bg" x1="88" y1="64" x2="424" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#172033"/>
+      <stop offset="1" stop-color="#0b1020"/>
+    </linearGradient>
+    <linearGradient id="core" x1="194" y1="174" x2="318" y2="338" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <filter id="shadow" x="16" y="24" width="480" height="480" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="24" stdDeviation="22" flood-color="#020617" flood-opacity="0.26"/>
+    </filter>
+  </defs>
+  <rect x="48" y="48" width="416" height="416" rx="112" fill="url(#bg)" filter="url(#shadow)"/>
+  <path d="M171 171L256 256L341 171" fill="none" stroke="#93c5fd" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M171 341L256 256L341 341" fill="none" stroke="#93c5fd" stroke-width="30" stroke-linecap="round" stroke-linejoin="round" opacity="0.72"/>
+  <circle cx="256" cy="256" r="76" fill="url(#core)"/>
+  <circle cx="256" cy="256" r="30" fill="#eff6ff"/>
+  <circle cx="171" cy="171" r="36" fill="#f8fafc"/>
+  <circle cx="341" cy="171" r="36" fill="#f8fafc"/>
+  <circle cx="171" cy="341" r="36" fill="#f8fafc"/>
+  <circle cx="341" cy="341" r="36" fill="#f8fafc"/>
+  <circle cx="171" cy="171" r="13" fill="#2563eb"/>
+  <circle cx="341" cy="171" r="13" fill="#2563eb"/>
+  <circle cx="171" cy="341" r="13" fill="#2563eb"/>
+  <circle cx="341" cy="341" r="13" fill="#2563eb"/>
+</svg>
