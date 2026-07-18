@@ -1612,19 +1612,22 @@ function VendorEditorPage({
                     />
                     <span>{model.enabled === false ? "Off" : "On"}</span>
                   </label>
-                  <select
-                    value={model.id || ""}
-                    onFocus={loadVendorModelsOnSelect}
-                    onMouseDown={loadVendorModelsOnSelect}
-                    onChange={(event) => updateVendorModel(index, "id", event.target.value)}
-                  >
-                    {!model.id && <option value="">Select model</option>}
-                    {modelOptions.map((modelId) => (
-                      <option value={modelId} key={modelId}>
-                        {modelId}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="model-select">
+                    <select
+                      value={model.id || ""}
+                      onFocus={loadVendorModelsOnSelect}
+                      onMouseDown={loadVendorModelsOnSelect}
+                      onChange={(event) => updateVendorModel(index, "id", event.target.value)}
+                    >
+                      {!model.id && <option value="">Select model</option>}
+                      {modelOptions.map((modelId) => (
+                        <option value={modelId} key={modelId}>
+                          {modelId}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown aria-hidden="true" size={16} />
+                  </div>
                   <button type="button" className="icon-command danger" onClick={() => removeVendorModel(index)} title="Remove model">
                     <Trash2 size={16} />
                   </button>
