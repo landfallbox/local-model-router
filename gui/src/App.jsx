@@ -712,23 +712,19 @@ export default function App() {
     }));
   }
 
-  function updateApp(field, value) {
-    setDraft((current) => ({
-      ...current,
-      app: { ...current.app, [field]: value },
-    }));
-  }
+  async function setCloseBehavior(closeBehavior) {
+    if (busy === "saveApp" || closeBehavior === persistedDraft.app.closeBehavior) {
+      return;
+    }
 
-  async function saveAppSettings() {
     await run("saveApp", async () => {
       const result = await getDesktopApi().saveConfig(toConfig({
         ...persistedDraft,
-        app: { ...draft.app },
+        app: { ...persistedDraft.app, closeBehavior },
       }));
       const savedDraft = toDraft(result.config);
       setPersistedDraft(savedDraft);
       setDraft((current) => ({ ...current, app: savedDraft.app }));
-      setToast("Window close behavior saved.");
     });
   }
 
@@ -1065,8 +1061,7 @@ export default function App() {
               />
               <AppSettingsPage
                 app={draft.app}
-                updateApp={updateApp}
-                saveAppSettings={saveAppSettings}
+                setCloseBehavior={setCloseBehavior}
                 busy={busy}
               />
               <VendorsPage
@@ -1306,21 +1301,11 @@ function RouterPage({ draft, updateRouter, showRouterKey, setShowRouterKey, copy
   );
 }
 
-function AppSettingsPage({ app, updateApp, saveAppSettings, busy }) {
+function AppSettingsPage({ app, setCloseBehavior, busy }) {
   return (
     <div className="panel-grid single">
       <div className="panel wide">
-        <div className="panel-toolbar">
-          <PanelHeader icon={Settings2} title="Window" />
-          <ActionButton
-            icon={Save}
-            label="Save"
-            onClick={saveAppSettings}
-            busy={busy === "saveApp"}
-            variant="primary"
-            title="Save window settings to config.json."
-          />
-        </div>
+        <PanelHeader icon={Settings2} title="Window" />
         <div className="form-grid">
           <div className="field wide">
             <span>Close button</span>
@@ -1330,7 +1315,8 @@ function AppSettingsPage({ app, updateApp, saveAppSettings, busy }) {
                   type="button"
                   key={option.value}
                   className={app.closeBehavior === option.value ? "active" : ""}
-                  onClick={() => updateApp("closeBehavior", option.value)}
+                  onClick={() => setCloseBehavior(option.value)}
+                  disabled={busy === "saveApp"}
                 >
                   {option.label}
                 </button>
