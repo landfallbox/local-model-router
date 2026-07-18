@@ -543,7 +543,7 @@ export default function App() {
       const result = await getDesktopApi().startRouter();
       setHealth(result.health);
       setRestartRequired(false);
-      setToast("Router started.");
+      setToast(result.health?.ok ? "Router started." : result.error || result.health?.error || "Router failed to start.");
       if (page === "logs") {
         await refreshLogs();
       }
@@ -575,7 +575,7 @@ export default function App() {
       const result = await getDesktopApi().restartRouter();
       setHealth(result.health);
       setRestartRequired(false);
-      setToast("Router restarted.");
+      setToast(result.health?.ok ? "Router restarted." : result.error || result.health?.error || "Router failed to restart.");
       if (page === "logs") {
         await refreshLogs();
       }

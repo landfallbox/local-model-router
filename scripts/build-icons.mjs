@@ -1,10 +1,8 @@
-import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 
-const execFileAsync = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(__dirname, "..");
 const buildDir = join(projectRoot, "build");
@@ -33,14 +31,10 @@ await rm(pngDir, { recursive: true, force: true });
 console.log(`Prepared Windows icons: ${iconPath}`);
 
 async function renderSvgToPng(size, outputPath) {
-  await execFileAsync("rsvg-convert", [
-    "--width", String(size),
-    "--height", String(size),
-    "--keep-aspect-ratio",
-    "--format", "png",
-    "--output", outputPath,
-    sourceSvg,
-  ]);
+  await sharp(sourceSvg)
+    .resize(size, size, { fit: "contain" })
+    .png()
+    .toFile(outputPath);
 }
 
 async function createIco(pngPaths) {

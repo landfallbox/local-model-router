@@ -1,7 +1,7 @@
 import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, Notification, shell, Tray } from "electron";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import fs from "node:fs/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -326,26 +326,116 @@ async function startRouter() {
     return { started: false, via: "existing", health: existingHealth };
   }
 
-  const child = spawn(paths.nodePath, [paths.serverPath], {
-    cwd: paths.appDir,
-    detached: true,
-    env: {
-      ...process.env,
-      ROUTER_CONFIG: paths.configPath,
-      LOCAL_MODEL_ROUTER_DATA_DIR: paths.dataDir,
-    },
-    stdio: "ignore",
-    windowsHide: true,
-  });
+  const processLog = await prepareProcessLog(paths);
+  const processLogFd = openSync(processLog.path, "a");
+  let child;
+  try {
+    child = spawn(paths.nodePath, [paths.serverPath], {
+      cwd: paths.appDir,
+      detached: true,
+      env: {
+        ...process.env,
+        ROUTER_CONFIG: paths.configPath,
+        LOCAL_MODEL_ROUTER_DATA_DIR: paths.dataDir,
+      },
+      stdio: ["ignore", processLogFd, processLogFd],
+      windowsHide: true,
+    });
+  } finally {
+    closeSync(processLogFd);
+  }
+
+  try {
+    await waitForChildSpawn(child);
+  } catch (error) {
+    const health = await getHealth(config);
+    const message = `Router process could not start: ${error.message || String(error)}`;
+    const failedHealth = { ...health, ok: false, error: message, processLogPath: processLog.path };
+    await recordRouterStartFailure(config, message, processLog.path);
+    await refreshTrayStatus(failedHealth);
+    return { started: false, via: "process", health: failedHealth, error: message };
+  }
 
   child.unref();
   await writeRouterPid(paths, child.pid);
   const health = await waitForHealth(config);
   if (!health.ok) {
+    await terminateProcess(child.pid);
     await removeRouterPid(paths);
+    const output = await readProcessLogSince(processLog.path, processLog.offset);
+    const detail = summarizeProcessOutput(output) || health.error || "Router process exited before becoming healthy.";
+    const message = `Router failed to start: ${detail}`;
+    const failedHealth = { ...health, error: message, processLogPath: processLog.path };
+    await recordRouterStartFailure(config, message, processLog.path);
+    await refreshTrayStatus(failedHealth);
+    return {
+      started: false,
+      via: "process",
+      pid: child.pid,
+      health: failedHealth,
+      error: message,
+    };
   }
   await refreshTrayStatus(health);
   return { started: true, via: "process", pid: child.pid, health };
+}
+
+async function prepareProcessLog(paths) {
+  const path = join(paths.dataDir, "logs", "router-process.log");
+  await fs.mkdir(dirname(path), { recursive: true });
+  await fs.appendFile(path, `\n[${new Date().toISOString()}] Starting Router\n`, "utf8");
+  const { size } = await fs.stat(path);
+  return { path, offset: size };
+}
+
+async function readProcessLogSince(path, offset, maxBytes = 8192) {
+  try {
+    const handle = await fs.open(path, "r");
+    try {
+      const { size } = await handle.stat();
+      const available = Math.max(0, size - offset);
+      const length = Math.min(available, maxBytes);
+      if (!length) {
+        return "";
+      }
+
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, size - length);
+      return buffer.toString("utf8").trim();
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return "";
+  }
+}
+
+function waitForChildSpawn(child) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    child.once("spawn", resolvePromise);
+    child.once("error", rejectPromise);
+  });
+}
+
+function summarizeProcessOutput(output) {
+  const lines = String(output || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.find((line) => /^Error(?:\s|\[|:)/.test(line)) || lines.at(-1) || "";
+}
+
+async function recordRouterStartFailure(config, message, processLogPath) {
+  try {
+    const logPath = await getLogPath(config);
+    await fs.mkdir(dirname(logPath), { recursive: true });
+    await fs.appendFile(logPath, `${JSON.stringify({
+      time: new Date().toISOString(),
+      level: "error",
+      event: "router_start_failed",
+      errorMessage: message,
+      processLogPath,
+    })}\n`, "utf8");
+  } catch {
+    // The startup result still carries the error when diagnostic logging fails.
+  }
 }
 
 async function stopRouter() {
@@ -353,18 +443,7 @@ async function stopRouter() {
   const pid = await getManagedRouterPid(paths);
 
   if (pid) {
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch (error) {
-      if (error.code !== "ESRCH") {
-        throw error;
-      }
-    }
-
-    await waitForProcessExit(pid);
-    if (await isProcessRunning(pid)) {
-      process.kill(pid, "SIGKILL");
-    }
+    await terminateProcess(pid);
   }
 
   await removeRouterPid(paths);
@@ -372,6 +451,26 @@ async function stopRouter() {
   const health = await getHealth();
   await refreshTrayStatus(health);
   return { stopped: true, health };
+}
+
+async function terminateProcess(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return;
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch (error) {
+    if (error.code !== "ESRCH") {
+      throw error;
+    }
+    return;
+  }
+
+  await waitForProcessExit(pid);
+  if (await isProcessRunning(pid)) {
+    process.kill(pid, "SIGKILL");
+  }
 }
 
 async function waitForProcessExit(pid, timeoutMs = 3000) {
