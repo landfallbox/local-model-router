@@ -637,7 +637,7 @@ function statusFromHealth(health) {
   }
 
   if (health.ok) {
-    return { label: "Running", detail: health.body?.model || "", isRouterActive: true };
+    return { label: "Running", detail: "", isRouterActive: true };
   }
 
   if (Number(health.processCount || 0) > 0) {
