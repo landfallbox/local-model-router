@@ -813,37 +813,21 @@ export default function App() {
   }
 
   function updateVendorEditor(field, value) {
-    setVendorEditorDraft((current) => {
-      const next = { ...current, [field]: value };
-      if (validateVendor(next).hasErrors) {
-        next.enabled = false;
-      }
-      return next;
-    });
+    setVendorEditorDraft((current) => ({ ...current, [field]: value }));
   }
 
   function updateVendorEditorModel(modelIndex, field, value) {
     setVendorEditorDraft((current) => {
       const models = getVendorModels(current).map((model, index) => (index === modelIndex ? { ...model, [field]: value } : model));
-      const next = { ...current, models };
-      if (validateVendor(next).hasErrors) {
-        next.enabled = false;
-      }
-      return next;
+      return { ...current, models };
     });
   }
 
   function addVendorEditorModel() {
-    setVendorEditorDraft((current) => {
-      const next = {
-        ...current,
-        models: [...getVendorModels(current), { id: "", enabled: true }],
-      };
-      if (validateVendor(next).hasErrors) {
-        next.enabled = false;
-      }
-      return next;
-    });
+    setVendorEditorDraft((current) => ({
+      ...current,
+      models: [...getVendorModels(current), { id: "", enabled: true }],
+    }));
   }
 
   async function loadVendorModels(vendor, { silent = false, force = false, sourceKey = getVendorModelsSourceKey(vendor) } = {}) {
@@ -914,11 +898,7 @@ export default function App() {
   function removeVendorEditorModel(modelIndex) {
     setVendorEditorDraft((current) => {
       const models = getVendorModels(current).filter((_model, index) => index !== modelIndex);
-      const next = { ...current, models };
-      if (validateVendor(next).hasErrors) {
-        next.enabled = false;
-      }
-      return next;
+      return { ...current, models };
     });
   }
 
