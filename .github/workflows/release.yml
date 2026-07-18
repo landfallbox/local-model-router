@@ -14,10 +14,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -41,7 +41,17 @@ jobs:
         run: npm test
 
       - name: Build Windows installer
-        run: npm run dist:windows
+        shell: pwsh
+        run: |
+          npm run dist:windows 2>&1 | Tee-Object -FilePath release-build.log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            "## Windows installer build failed" >> $env:GITHUB_STEP_SUMMARY
+            '```text' >> $env:GITHUB_STEP_SUMMARY
+            Get-Content release-build.log -Tail 100 >> $env:GITHUB_STEP_SUMMARY
+            '```' >> $env:GITHUB_STEP_SUMMARY
+            exit $exitCode
+          }
 
       - name: Validate release assets
         shell: pwsh
