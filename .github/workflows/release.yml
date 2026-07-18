@@ -38,7 +38,16 @@ jobs:
         run: npm run check
 
       - name: Smoke tests
-        run: npm test
+        shell: pwsh
+        run: |
+          npm test 2>&1 | Tee-Object -FilePath smoke-test.log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            $logTail = Get-Content smoke-test.log -Tail 100
+            $annotation = ($logTail -join "`n").Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Smoke tests failed::$annotation"
+            exit $exitCode
+          }
 
       - name: Build icons
         run: npm run icons:build
