@@ -40,16 +40,28 @@ jobs:
       - name: Smoke tests
         run: npm test
 
+      - name: Build icons
+        run: npm run icons:build
+
+      - name: Build GUI
+        run: npm run gui:build
+
+      - name: Prepare bundled Node.js
+        run: node scripts/prepare-electron-builder.mjs
+
       - name: Build Windows installer
         shell: pwsh
         run: |
-          npm run dist:windows 2>&1 | Tee-Object -FilePath release-build.log
+          npx electron-builder --win nsis --x64 2>&1 | Tee-Object -FilePath release-build.log
           $exitCode = $LASTEXITCODE
           if ($exitCode -ne 0) {
             "## Windows installer build failed" >> $env:GITHUB_STEP_SUMMARY
             '```text' >> $env:GITHUB_STEP_SUMMARY
-            Get-Content release-build.log -Tail 100 >> $env:GITHUB_STEP_SUMMARY
+            $logTail = Get-Content release-build.log -Tail 100
+            $logTail >> $env:GITHUB_STEP_SUMMARY
             '```' >> $env:GITHUB_STEP_SUMMARY
+            $annotation = ($logTail -join '%0A').Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Windows installer build failed::$annotation"
             exit $exitCode
           }
 
