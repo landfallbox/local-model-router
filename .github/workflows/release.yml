@@ -52,7 +52,7 @@ jobs:
       - name: Build Windows installer
         shell: pwsh
         run: |
-          npx electron-builder --win nsis --x64 2>&1 | Tee-Object -FilePath release-build.log
+          npx electron-builder --win nsis --x64 --publish never 2>&1 | Tee-Object -FilePath release-build.log
           $exitCode = $LASTEXITCODE
           if ($exitCode -ne 0) {
             "## Windows installer build failed" >> $env:GITHUB_STEP_SUMMARY
@@ -60,7 +60,7 @@ jobs:
             $logTail = Get-Content release-build.log -Tail 100
             $logTail >> $env:GITHUB_STEP_SUMMARY
             '```' >> $env:GITHUB_STEP_SUMMARY
-            $annotation = ($logTail -join '%0A').Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            $annotation = ($logTail -join "`n").Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::error title=Windows installer build failed::$annotation"
             exit $exitCode
           }
