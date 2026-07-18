@@ -1,4 +1,7 @@
 {
+  "app": {
+    "closeBehavior": "tray"
+  },
   "router": {
     "host": "127.0.0.1",
     "port": 4000,
@@ -19,7 +22,16 @@
     {
       "name": "primary-vendor",
       "baseUrl": "https://api.primary.example/v1",
-      "model": "model-id",
+      "models": [
+        {
+          "id": "model-id",
+          "enabled": true
+        },
+        {
+          "id": "coder-model",
+          "enabled": true
+        }
+      ],
       "authentication": "api-key",
       "apiKey": "replace-with-primary-vendor-key",
       "enabled": false
@@ -27,7 +39,16 @@
     {
       "name": "fallback-vendor",
       "baseUrl": "https://api.fallback.example/v1",
-      "model": "model-id",
+      "models": [
+        {
+          "id": "model-id",
+          "enabled": true
+        },
+        {
+          "id": "coder-model",
+          "enabled": true
+        }
+      ],
       "authentication": "api-key",
       "apiKey": "replace-with-fallback-vendor-key",
       "enabled": false

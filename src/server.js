@@ -46,13 +46,29 @@ function loadConfig() {
     .map((vendor) => {
       return {
         ...vendor,
-        model: String(vendor.model || config.model.id),
+        models: normalizeRuntimeVendorModels(vendor, config.model.id),
         timeoutMs: Number(config.router.requestTimeoutMs),
       };
-    });
+    })
+    .filter((vendor) => vendor.models.some((model) => model.enabled !== false));
 
   validateConfig(config, { configPath });
   return { config, configPath };
+}
+
+function normalizeRuntimeVendorModels(vendor, defaultModelId) {
+  const models = Array.isArray(vendor.models) ? vendor.models : [];
+  if (!models.length) {
+    const id = String(vendor.model || defaultModelId || "model-id").trim();
+    return [{ id, enabled: true }];
+  }
+
+  return models
+    .map((model) => ({
+      id: String(model.id || defaultModelId || "model-id").trim(),
+      enabled: model.enabled !== false,
+    }))
+    .filter((model) => model.id);
 }
 
 function vendorsFromEnvironment() {
@@ -213,7 +229,7 @@ async function callVendor(vendor, requestBody) {
   try {
     const body = {
       ...requestBody,
-      model: vendor.model,
+      model: vendor.selectedModel.id,
     };
 
     const response = await fetch(buildUpstreamUrl(vendor), {
@@ -306,16 +322,29 @@ async function handleChat(req, res, config, logger) {
   const requestId = randomUUID();
   const startedAt = Date.now();
   const requestBody = await readJsonBody(req, config.router.maxBodyBytes);
+  const requestedModel = String(requestBody.model || config.model.id).trim() || config.model.id;
+  const vendors = getVendorsForModel(config.vendors, requestedModel);
   const failures = [];
 
-  for (const vendor of config.vendors) {
+  if (!vendors.length) {
+    sendJson(res, 404, {
+      error: {
+        message: `No enabled vendor supports model: ${requestedModel}`,
+        type: "model_not_found",
+        model: requestedModel,
+      },
+    });
+    return;
+  }
+
+  for (const vendor of vendors) {
     const vendorStartedAt = Date.now();
 
     try {
       logger.info("vendor_request_started", {
         requestId,
         vendor: vendor.name,
-        model: vendor.model,
+        model: requestedModel,
         stream: requestBody.stream === true,
       });
 
@@ -350,6 +379,7 @@ async function handleChat(req, res, config, logger) {
       logger.info("vendor_request_selected", {
         requestId,
         vendor: vendor.name,
+        model: requestedModel,
         statusCode: upstream.status,
         elapsedMs,
         totalElapsedMs: Date.now() - startedAt,
@@ -391,16 +421,25 @@ async function handleChat(req, res, config, logger) {
   });
 }
 
+function getVendorsForModel(vendors, requestedModel) {
+  return vendors.flatMap((vendor) => {
+    const selectedModel = vendor.models.find((model) => model.enabled !== false && model.id === requestedModel);
+    return selectedModel ? [{ ...vendor, selectedModel }] : [];
+  });
+}
+
 function handleModels(_req, res, config) {
+  const modelIds = [...new Set(config.vendors.flatMap((vendor) => vendor.models
+    .filter((model) => model.enabled !== false)
+    .map((model) => model.id)))];
+
   sendJson(res, 200, {
     object: "list",
-    data: [
-      {
-        id: config.model.id,
-        object: "model",
-        owned_by: config.model.ownedBy,
-      },
-    ],
+    data: modelIds.map((id) => ({
+      id,
+      object: "model",
+      owned_by: config.model.ownedBy,
+    })),
   });
 }
 
@@ -411,7 +450,10 @@ function handleHealth(_req, res, config) {
     vendorCount: config.vendors.length,
     vendors: config.vendors.map((vendor) => ({
       name: vendor.name,
-      model: vendor.model,
+      models: vendor.models.map((model) => ({
+        id: model.id,
+        enabled: model.enabled !== false,
+      })),
       enabled: vendor.enabled !== false,
     })),
   });

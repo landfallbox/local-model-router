@@ -32,13 +32,24 @@ copy config.example.json config.json
 npm run gui
 ```
 
+`npm run gui` starts the development GUI with an isolated config directory under the system temp folder. This keeps development runs separate from the project `config.json` and uses a development default port when it creates a new config.
+
+To point the development GUI at the project config instead, set `ROUTER_CONFIG` before starting it:
+
+```powershell
+$env:ROUTER_CONFIG = (Resolve-Path .\config.json)
+npm run gui
+```
+
 In the GUI, set:
 
 - `router.apiKey`: the local token clients send as `Authorization: Bearer ...`.
 - `vendors`: upstream providers in priority order.
 - `baseUrl`: the upstream API base URL, usually ending in `/v1`.
-- `model`: the upstream model identifier to send to that vendor.
+- `models[].id`: a model name this vendor can serve.
 - `authentication`: `none` or `api-key`.
+
+Each vendor can support multiple models. Requests are routed only to vendors that list the requested model id, and the same model id is sent to the selected upstream provider.
 
 Keep `config.json` private. It is ignored by git and may contain API keys.
 

@@ -10,7 +10,6 @@ import {
   EyeOff,
   FileCog,
   FileText,
-  KeyRound,
   Loader2,
   Play,
   Plus,
@@ -36,6 +35,9 @@ function getDesktopApi() {
 }
 
 const defaultDraft = {
+  app: {
+    closeBehavior: "tray",
+  },
   router: {
     host: "127.0.0.1",
     port: "4000",
@@ -55,16 +57,119 @@ const defaultDraft = {
   vendors: [],
 };
 
+const defaultAppName = "Local Model Router";
+
 const navItems = [
   { id: "settings", label: "Settings", icon: Settings2 },
   { id: "logs", label: "Logs", icon: Terminal },
 ];
 
+const closeBehaviorOptions = [
+  { value: "tray", label: "Keep in tray" },
+  { value: "exit", label: "Exit and stop" },
+  { value: "ask", label: "Ask every time" },
+];
+
+function normalizeCloseBehavior(value) {
+  return closeBehaviorOptions.some((option) => option.value === value) ? value : defaultDraft.app.closeBehavior;
+}
+
+function normalizeVendorModelsForDraft(vendor, defaultModelId = defaultDraft.model.id) {
+  const fallbackId = String(defaultModelId || defaultDraft.model.id).trim() || defaultDraft.model.id;
+  if (!Array.isArray(vendor?.models)) {
+    const id = String(vendor?.model || fallbackId).trim() || fallbackId;
+    return [{ id, enabled: true }];
+  }
+
+  return vendor.models
+    .map((model) => normalizeVendorModelForDraft(model, fallbackId))
+}
+
+function normalizeVendorModelForDraft(model, fallbackId = defaultDraft.model.id) {
+  if (typeof model === "string") {
+    const id = model.trim();
+    return { id, enabled: true };
+  }
+
+  if (!model || typeof model !== "object") {
+    return { id: fallbackId, enabled: true };
+  }
+
+  const hasExplicitId = Object.prototype.hasOwnProperty.call(model, "id");
+  const id = String(hasExplicitId ? model.id || "" : model.model || fallbackId).trim();
+  return {
+    ...model,
+    id,
+    enabled: model?.enabled !== false,
+  };
+}
+
+function getVendorModels(vendor, defaultModelId = defaultDraft.model.id) {
+  return normalizeVendorModelsForDraft(vendor, defaultModelId);
+}
+
+function getVendorModelOptions(vendor, availableModels = []) {
+  return [
+    ...new Set([
+      ...availableModels.map((modelId) => String(modelId || "").trim()).filter(Boolean),
+      ...getVendorModels(vendor).map((model) => String(model.id || "").trim()).filter(Boolean),
+    ]),
+  ];
+}
+
+function getVendorModelsSourceKey(vendor) {
+  return String(vendor?.baseUrl || "").trim();
+}
+
+function validateVendorBaseUrl(value) {
+  const baseUrl = String(value || "").trim();
+  if (!baseUrl) {
+    return "Base URL is required.";
+  }
+  if (!/^https?:\/\//i.test(baseUrl)) {
+    return "Base URL must start with http:// or https://.";
+  }
+
+  try {
+    const url = new URL(baseUrl);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return "Base URL must use HTTP or HTTPS.";
+    }
+  } catch {
+    return "Base URL must be a valid URL, for example http://127.0.0.1:8000/v1.";
+  }
+
+  return "";
+}
+
+function getVendorModelsLoadMessage(vendor) {
+  const baseUrlError = validateVendorBaseUrl(vendor?.baseUrl);
+  if (baseUrlError) {
+    return baseUrlError;
+  }
+  if (vendor?.authentication === "api-key" && !vendor?.apiKey) {
+    return "Enter the Vendor API key before loading models.";
+  }
+  return "";
+}
+
+function canLoadVendorModels(vendor) {
+  if (getVendorModelsLoadMessage(vendor)) {
+    return false;
+  }
+  return vendor?.authentication !== "api-key" || Boolean(vendor?.apiKey);
+}
+
 function toDraft(config) {
+  const app = config.app || {};
   const router = config.router || {};
   const model = config.model || {};
+  const modelId = model.id || defaultDraft.model.id;
 
   return {
+    app: {
+      closeBehavior: normalizeCloseBehavior(app.closeBehavior),
+    },
     router: {
       host: router.host || "127.0.0.1",
       port: String(router.port ?? 4000),
@@ -86,6 +191,7 @@ function toDraft(config) {
     vendors: Array.isArray(config.vendors)
       ? config.vendors.map((vendor) => ({
           ...vendor,
+          models: normalizeVendorModelsForDraft(vendor, modelId),
           authentication: vendor.authentication === "api-key" || vendor.apiKey ? "api-key" : "none",
         }))
       : [],
@@ -119,6 +225,9 @@ function parseStatusCodes(value) {
 
 function toConfig(draft) {
   return {
+    app: {
+      closeBehavior: normalizeCloseBehavior(draft.app?.closeBehavior),
+    },
     router: {
       host: draft.router.host.trim() || "127.0.0.1",
       port: numberValue(draft.router.port, 4000),
@@ -140,13 +249,17 @@ function toConfig(draft) {
         ...vendor,
         name: String(vendor.name || "").trim(),
         baseUrl: String(vendor.baseUrl || "").trim(),
-        model: String(vendor.model || "").trim(),
+        models: normalizeVendorModelsForDraft(vendor, draft.model.id).map((model) => ({
+          id: String(model.id || "").trim(),
+          enabled: model.enabled !== false,
+        })),
         authentication: vendor.authentication === "api-key" ? "api-key" : "none",
         enabled: vendor.enabled !== false,
       };
       delete normalized.timeoutMs;
       delete normalized.apiKeyEnv;
       delete normalized.headers;
+      delete normalized.model;
       if (normalized.authentication === "none") {
         delete normalized.apiKey;
       }
@@ -186,11 +299,6 @@ function validateRouter(router) {
     addError("port", portError);
   }
 
-  const timeoutError = validateInteger(router.requestTimeoutMs, "Request timeout", { min: 100, max: 600000 });
-  if (timeoutError) {
-    addError("requestTimeoutMs", timeoutError);
-  }
-
   return { errors, fields, hasErrors: errors.length > 0, firstError: errors[0] || "" };
 }
 
@@ -200,23 +308,14 @@ function endpointFromDraft(draft) {
   return `http://${host}:${port}/v1/chat/completions`;
 }
 
-function getKeyStatus(vendor) {
-  if (vendor.authentication !== "api-key") {
-    return { label: "No authentication", tone: "neutral" };
-  }
-  if (vendor.apiKey) {
-    return { label: "Key configured", tone: "success" };
-  }
-  return { label: "Missing key", tone: "warning" };
-}
-
 function validateVendor(vendor) {
   const errors = [];
   const warnings = [];
   const fields = {};
   const name = String(vendor?.name || "").trim();
   const baseUrl = String(vendor?.baseUrl || "").trim();
-  const model = String(vendor?.model || "").trim();
+  const models = getVendorModels(vendor);
+  const enabledModels = models.filter((model) => model.enabled !== false);
   const authentication = vendor?.authentication === "api-key" ? "api-key" : "none";
 
   if (!name) {
@@ -224,24 +323,30 @@ function validateVendor(vendor) {
     errors.push("Name required");
   }
 
-  if (!baseUrl) {
-    fields.baseUrl = { tone: "error", message: "Base URL is required." };
+  const baseUrlError = validateVendorBaseUrl(baseUrl);
+  if (baseUrlError) {
+    fields.baseUrl = { tone: "error", message: baseUrlError };
     errors.push("Base URL required");
-  } else {
-    try {
-      const url = new URL(baseUrl);
-      if (!["http:", "https:"].includes(url.protocol)) {
-        throw new Error("Unsupported protocol");
-      }
-    } catch {
-      fields.baseUrl = { tone: "error", message: "Enter a valid HTTP or HTTPS URL." };
-      errors.push("Invalid Base URL");
-    }
   }
 
-  if (!model) {
-    fields.model = { tone: "warning", message: "The global model will be used." };
-    warnings.push("Missing model");
+  if (!enabledModels.length) {
+    fields.models = { tone: "error", message: "Add at least one enabled model." };
+    errors.push("No enabled model");
+  } else {
+    const seenModelIds = new Set();
+    for (const model of enabledModels) {
+      if (!model.id) {
+        fields.models = { tone: "error", message: "Every enabled model needs a name." };
+        errors.push("Invalid model mapping");
+        break;
+      }
+      if (seenModelIds.has(model.id)) {
+        fields.models = { tone: "error", message: "Model ids must be unique per vendor." };
+        errors.push("Duplicate model id");
+        break;
+      }
+      seenModelIds.add(model.id);
+    }
   }
 
   if (authentication === "api-key" && !vendor?.apiKey) {
@@ -250,6 +355,23 @@ function validateVendor(vendor) {
   }
 
   return { errors, warnings, fields, hasErrors: errors.length > 0 };
+}
+
+function getVendorModelsErrorField(error, vendor) {
+  const rawMessage = String(error?.message || error || "Failed to refresh models.");
+  const jsonCode = rawMessage.match(/"code"\s*:\s*"([^"]+)"/i)?.[1] || "";
+  const code = String(error?.code || jsonCode || "").toUpperCase();
+  const message = code ? code.replace(/_/g, " ") : rawMessage.replace(/^Error invoking remote method '[^']+':\s*/i, "").replace(/^Error:\s*/i, "");
+  if (code.includes("API_KEY") || code.includes("AUTH") || code.includes("UNAUTHORIZED") || /api key|unauthorized|forbidden/i.test(message)) {
+    if (vendor?.authentication !== "api-key") {
+      return { field: "authentication", message: "API KEY REQUIRED" };
+    }
+    return { field: "apiKey", message };
+  }
+  if (code.startsWith("HTTP_4") || /base url|not found|404|connect|network|fetch|timeout/i.test(message)) {
+    return { field: "baseUrl", message };
+  }
+  return { field: "models", message };
 }
 
 function cloneVendor(vendor) {
@@ -317,11 +439,18 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [showRouterKey, setShowRouterKey] = useState(false);
   const [modal, setModal] = useState(null);
+  const [showVendorKey, setShowVendorKey] = useState(false);
   const [vendorEditorIndex, setVendorEditorIndex] = useState(null);
   const [vendorEditorDraft, setVendorEditorDraft] = useState(null);
   const [vendorEditorOriginal, setVendorEditorOriginal] = useState(null);
   const [vendorEditorIsNew, setVendorEditorIsNew] = useState(false);
+  const [availableVendorModels, setAvailableVendorModels] = useState([]);
+  const [vendorModelsError, setVendorModelsError] = useState(null);
   const [restartRequired, setRestartRequired] = useState(false);
+  const [appName, setAppName] = useState(defaultAppName);
+  const [isDevelopmentRuntime, setIsDevelopmentRuntime] = useState(false);
+  const vendorModelsRequestRef = useRef(0);
+  const vendorModelsSourceKeyRef = useRef("");
 
   const endpoint = useMemo(() => endpointFromDraft(draft), [draft]);
   const status = useMemo(() => getStatus(health), [health]);
@@ -365,15 +494,21 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  async function loadState() {
+  async function loadState({ toastMessage = "" } = {}) {
     let configLoaded = false;
     setBusy("load");
     try {
       const state = await getDesktopApi().loadConfig();
+      setAppName(state.appName || defaultAppName);
+      setIsDevelopmentRuntime(Boolean(state.isDevelopmentRuntime));
       const loadedDraft = toDraft(state.config);
       setDraft(loadedDraft);
       setPersistedDraft(loadedDraft);
+      setRestartRequired(false);
       configLoaded = true;
+      if (toastMessage) {
+        setToast(toastMessage);
+      }
     } catch (error) {
       setToast(error.message || String(error));
     } finally {
@@ -388,6 +523,19 @@ export default function App() {
     if (configLoaded) {
       void refreshHealth({ silent: true, fast: true });
     }
+  }
+
+  async function reloadConfig() {
+    setModal(null);
+    if (page === "vendor-edit") {
+      setVendorEditorIndex(null);
+      setVendorEditorDraft(null);
+      setVendorEditorOriginal(null);
+      setVendorEditorIsNew(false);
+      clearVendorModelOptions();
+      setPage("settings");
+    }
+    await loadState({ toastMessage: "Config reloaded." });
   }
 
   async function startRouter() {
@@ -504,7 +652,9 @@ export default function App() {
     try {
       const savedDraft = await writeConfig({ ...persistedDraft, vendors });
       setDraft((current) => ({ ...current, vendors: savedDraft.vendors }));
-      setToast(message);
+      if (message) {
+        setToast(message);
+      }
     } catch (error) {
       setDraft((current) => ({ ...current, vendors: persistedDraft.vendors }));
       throw error;
@@ -514,6 +664,26 @@ export default function App() {
   async function copyEndpoint() {
     await getDesktopApi().writeClipboard(endpoint);
     setToast("Endpoint copied.");
+  }
+
+  async function copyRouterApiKey() {
+    if (!draft.router.apiKey) {
+      setToast("Router API key is empty.");
+      return;
+    }
+
+    await getDesktopApi().writeClipboard(draft.router.apiKey);
+    setToast("Router API key copied.");
+  }
+
+  async function copyVendorApiKey() {
+    if (!vendorEditorDraft?.apiKey) {
+      setToast("Vendor API key is empty.");
+      return;
+    }
+
+    await getDesktopApi().writeClipboard(vendorEditorDraft.apiKey);
+    setToast("Vendor API key copied.");
   }
 
   async function run(name, action) {
@@ -527,11 +697,39 @@ export default function App() {
     }
   }
 
+  function clearVendorModelOptions() {
+    vendorModelsRequestRef.current += 1;
+    vendorModelsSourceKeyRef.current = "";
+    setAvailableVendorModels([]);
+    setVendorModelsError(null);
+    setBusy((current) => (current === "vendorModels" ? "" : current));
+  }
+
   function updateRouter(field, value) {
     setDraft((current) => ({
       ...current,
       router: { ...current.router, [field]: value },
     }));
+  }
+
+  function updateApp(field, value) {
+    setDraft((current) => ({
+      ...current,
+      app: { ...current.app, [field]: value },
+    }));
+  }
+
+  async function saveAppSettings() {
+    await run("saveApp", async () => {
+      const result = await getDesktopApi().saveConfig(toConfig({
+        ...persistedDraft,
+        app: { ...draft.app },
+      }));
+      const savedDraft = toDraft(result.config);
+      setPersistedDraft(savedDraft);
+      setDraft((current) => ({ ...current, app: savedDraft.app }));
+      setToast("Window close behavior saved.");
+    });
   }
 
   function updateVendor(index, field, value) {
@@ -543,14 +741,14 @@ export default function App() {
 
     const vendors = draft.vendors.map((vendor, vendorIndex) => (vendorIndex === index ? nextVendor : vendor));
     setDraft((current) => ({ ...current, vendors }));
-    void run("vendors", () => persistVendorList(vendors, "Vendor status saved."));
+    void run("vendors", () => persistVendorList(vendors));
   }
 
   function addVendor() {
     const vendor = {
       name: "new-vendor",
       baseUrl: "https://example.com/v1",
-      model: draft.model.id || "model-id",
+      models: [{ id: draft.model.id || "model-id", enabled: true }],
       authentication: "none",
       enabled: false,
     };
@@ -559,6 +757,8 @@ export default function App() {
     setVendorEditorDraft(cloneVendor(vendor));
     setVendorEditorOriginal(cloneVendor(vendor));
     setVendorEditorIsNew(true);
+    setShowVendorKey(false);
+    clearVendorModelOptions();
     setPage("vendor-edit");
   }
 
@@ -585,7 +785,7 @@ export default function App() {
     const [vendor] = vendors.splice(index, 1);
     vendors.splice(nextIndex, 0, vendor);
     setDraft((current) => ({ ...current, vendors }));
-    void run("vendors", () => persistVendorList(vendors, "Vendor priority saved."));
+    void run("vendors", () => persistVendorList(vendors));
   }
 
   function openVendorEditor(index) {
@@ -597,6 +797,8 @@ export default function App() {
     setVendorEditorDraft(vendor);
     setVendorEditorOriginal(cloneVendor(vendor));
     setVendorEditorIsNew(false);
+    setShowVendorKey(false);
+    clearVendorModelOptions();
     setPage("vendor-edit");
   }
 
@@ -605,6 +807,8 @@ export default function App() {
     setVendorEditorDraft(null);
     setVendorEditorOriginal(null);
     setVendorEditorIsNew(false);
+    setShowVendorKey(false);
+    clearVendorModelOptions();
     setPage("settings");
   }
 
@@ -616,6 +820,116 @@ export default function App() {
       }
       return next;
     });
+  }
+
+  function updateVendorEditorModel(modelIndex, field, value) {
+    setVendorEditorDraft((current) => {
+      const models = getVendorModels(current).map((model, index) => (index === modelIndex ? { ...model, [field]: value } : model));
+      const next = { ...current, models };
+      if (validateVendor(next).hasErrors) {
+        next.enabled = false;
+      }
+      return next;
+    });
+  }
+
+  function addVendorEditorModel() {
+    setVendorEditorDraft((current) => {
+      const next = {
+        ...current,
+        models: [...getVendorModels(current), { id: "", enabled: true }],
+      };
+      if (validateVendor(next).hasErrors) {
+        next.enabled = false;
+      }
+      return next;
+    });
+  }
+
+  async function loadVendorModels(vendor, { silent = false, force = false, sourceKey = getVendorModelsSourceKey(vendor) } = {}) {
+    if (!vendor) {
+      return;
+    }
+    if (!canLoadVendorModels(vendor)) {
+      const message = getVendorModelsLoadMessage(vendor);
+      setVendorModelsError(null);
+      if (!silent) {
+        setToast(message);
+      }
+      return;
+    }
+    if (!force && sourceKey === vendorModelsSourceKeyRef.current) {
+      return;
+    }
+    if (typeof getDesktopApi().listVendorModels !== "function") {
+      if (!silent) {
+        setToast("Restart the desktop app to enable model list loading.");
+      }
+      return;
+    }
+
+    const requestId = vendorModelsRequestRef.current + 1;
+    vendorModelsRequestRef.current = requestId;
+    vendorModelsSourceKeyRef.current = sourceKey;
+    setAvailableVendorModels([]);
+    setVendorModelsError(null);
+    if (!silent) {
+      setBusy("vendorModels");
+    }
+
+    try {
+      const result = await getDesktopApi().listVendorModels(vendor);
+      if (requestId !== vendorModelsRequestRef.current || sourceKey !== vendorModelsSourceKeyRef.current) {
+        return;
+      }
+      setAvailableVendorModels(result.models || []);
+      setVendorModelsError(null);
+      if (!silent) {
+        setToast(`Loaded ${(result.models || []).length} models.`);
+      }
+    } catch (error) {
+      if (requestId !== vendorModelsRequestRef.current || sourceKey !== vendorModelsSourceKeyRef.current) {
+        return;
+      }
+      const fieldError = getVendorModelsErrorField(error, vendor);
+      setVendorModelsError(fieldError);
+      if (!silent) {
+        setToast(fieldError.message);
+      }
+    } finally {
+      if (!silent && requestId === vendorModelsRequestRef.current) {
+        setBusy((current) => (current === "vendorModels" ? "" : current));
+      }
+    }
+  }
+
+  async function refreshVendorModels() {
+    await loadVendorModels(vendorEditorDraft, { force: true });
+  }
+
+  async function loadVendorModelsOnSelect() {
+    await loadVendorModels(vendorEditorDraft, { silent: true });
+  }
+
+  function removeVendorEditorModel(modelIndex) {
+    setVendorEditorDraft((current) => {
+      const models = getVendorModels(current).filter((_model, index) => index !== modelIndex);
+      const next = { ...current, models };
+      if (validateVendor(next).hasErrors) {
+        next.enabled = false;
+      }
+      return next;
+    });
+  }
+
+  function requestRemoveVendorEditorModel(modelIndex) {
+    const modelId = getVendorModels(vendorEditorDraft)[modelIndex]?.id || "this model";
+    setModal({ type: "deleteVendorModel", index: modelIndex, name: modelId });
+  }
+
+  function confirmRemoveVendorEditorModel() {
+    removeVendorEditorModel(modal.index);
+    setModal(null);
   }
 
   async function saveVendorEditor() {
@@ -649,16 +963,12 @@ export default function App() {
     setToast("Vendor changes reverted.");
   }
 
-  function openKeyModal() {
-    setModal({
-      type: "key",
-      value: vendorEditorDraft?.apiKey || "",
-      show: false,
-    });
+  function requestRevertVendorEditor() {
+    setModal({ type: "revertVendor" });
   }
 
-  function saveKeyModal(clear = false) {
-    updateVendorEditor("apiKey", clear ? "" : modal.value);
+  function confirmRevertVendorEditor() {
+    revertVendorEditor();
     setModal(null);
   }
 
@@ -685,8 +995,8 @@ export default function App() {
             <ShieldCheck size={20} />
           </div>
           <div>
-            <div className="brand-title">Local Model Router</div>
-            <div className="brand-subtitle">Desktop Control</div>
+            <div className="brand-title">{appName}</div>
+            <div className="brand-subtitle">{appName === defaultAppName ? "Desktop Control" : "Development Control"}</div>
           </div>
         </div>
 
@@ -743,6 +1053,11 @@ export default function App() {
             <div className="eyebrow">{eyebrowForPage(page)}</div>
             <h1>{titleForPage(page, vendorEditorDraft)}</h1>
           </div>
+          {isDevelopmentRuntime && (
+            <button type="button" className="icon-command" onClick={reloadConfig} disabled={busy === "load"} title="Reload config">
+              <RefreshCw className={busy === "load" ? "spin" : ""} size={18} />
+            </button>
+          )}
         </header>
 
         <section className="endpoint-strip">
@@ -763,9 +1078,16 @@ export default function App() {
                 updateRouter={updateRouter}
                 showRouterKey={showRouterKey}
                 setShowRouterKey={setShowRouterKey}
+                copyRouterApiKey={copyRouterApiKey}
                 saveRouter={saveRouter}
                 busy={busy}
                 validation={routerValidation}
+              />
+              <AppSettingsPage
+                app={draft.app}
+                updateApp={updateApp}
+                saveAppSettings={saveAppSettings}
+                busy={busy}
               />
               <VendorsPage
                 vendors={draft.vendors}
@@ -782,9 +1104,18 @@ export default function App() {
             <VendorEditorPage
               vendor={vendorEditorDraft}
               updateVendor={updateVendorEditor}
-              openKeyModal={openKeyModal}
+              updateVendorModel={updateVendorEditorModel}
+              addVendorModel={addVendorEditorModel}
+              removeVendorModel={requestRemoveVendorEditorModel}
+              availableModels={availableVendorModels}
+              vendorModelsError={vendorModelsError}
+              refreshVendorModels={refreshVendorModels}
+              loadVendorModelsOnSelect={loadVendorModelsOnSelect}
+              showVendorKey={showVendorKey}
+              setShowVendorKey={setShowVendorKey}
+              copyVendorApiKey={copyVendorApiKey}
               saveVendor={saveVendorEditor}
-              revertVendor={revertVendorEditor}
+              revertVendor={requestRevertVendorEditor}
               busy={busy}
               onBack={closeVendorEditor}
             />
@@ -802,44 +1133,9 @@ export default function App() {
         </section>
       </main>
 
-      {modal?.type === "key" && (
-        <Modal title="Vendor API key" onClose={() => setModal(null)}>
-          <div className="modal-field">
-            <label>{vendorEditorDraft?.name || "Vendor"}</label>
-            <div className="secret-row">
-              <input
-                value={modal.value}
-                type={modal.show ? "text" : "password"}
-                onChange={(event) => setModal((current) => ({ ...current, value: event.target.value }))}
-                autoFocus
-              />
-              <button
-                type="button"
-                className="icon-command"
-                onClick={() => setModal((current) => ({ ...current, show: !current.show }))}
-                title={modal.show ? "Hide key" : "Show key"}
-              >
-                {modal.show ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </div>
-          <div className="modal-actions">
-            <button type="button" className="button subtle" onClick={() => saveKeyModal(true)}>
-              Clear
-            </button>
-            <button type="button" className="button" onClick={() => setModal(null)}>
-              Cancel
-            </button>
-            <button type="button" className="button primary" onClick={() => saveKeyModal(false)}>
-              Save
-            </button>
-          </div>
-        </Modal>
-      )}
-
       {modal?.type === "delete" && (
         <Modal title="Delete vendor" onClose={() => setModal(null)}>
-          <p className="modal-message">Delete {modal.name}? This removes it from config.json immediately.</p>
+          <p className="modal-message">This removes the vendor immediately.</p>
           <div className="modal-actions">
             <button type="button" className="button" onClick={() => setModal(null)}>
               Cancel
@@ -851,8 +1147,36 @@ export default function App() {
         </Modal>
       )}
 
+      {modal?.type === "deleteVendorModel" && (
+        <Modal title="Delete model" onClose={() => setModal(null)}>
+          <p className="modal-message">This removes the model from the current vendor draft.</p>
+          <div className="modal-actions">
+            <button type="button" className="button" onClick={() => setModal(null)}>
+              Cancel
+            </button>
+            <button type="button" className="button danger" onClick={confirmRemoveVendorEditorModel}>
+              Delete
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {modal?.type === "revertVendor" && (
+        <Modal title="Revert vendor changes" onClose={() => setModal(null)}>
+          <p className="modal-message">Revert all unsaved changes for this vendor?</p>
+          <div className="modal-actions">
+            <button type="button" className="button" onClick={() => setModal(null)}>
+              Cancel
+            </button>
+            <button type="button" className="button danger" onClick={confirmRevertVendorEditor}>
+              Revert
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {modal?.type === "close" && (
-        <Modal title="Close Local Model Router" onClose={cancelWindowClose} tone="attention">
+        <Modal title={`Close ${appName}`} onClose={cancelWindowClose} tone="attention">
           <div className="close-confirm">
             <div className="close-confirm-icon">
               <XCircle size={22} />
@@ -951,7 +1275,7 @@ function DockButton({ icon: Icon, label, onClick, busy, variant = "default" }) {
   );
 }
 
-function RouterPage({ draft, updateRouter, showRouterKey, setShowRouterKey, saveRouter, busy, validation }) {
+function RouterPage({ draft, updateRouter, showRouterKey, setShowRouterKey, copyRouterApiKey, saveRouter, busy, validation }) {
   return (
     <div className="panel-grid single">
       <div className="panel wide">
@@ -959,7 +1283,7 @@ function RouterPage({ draft, updateRouter, showRouterKey, setShowRouterKey, save
           <PanelHeader icon={Settings2} title="Router" />
           <ActionButton
             icon={Save}
-            label="Save Router"
+            label="Save"
             onClick={saveRouter}
             busy={busy === "saveRouter"}
             disabled={validation.hasErrors}
@@ -971,20 +1295,21 @@ function RouterPage({ draft, updateRouter, showRouterKey, setShowRouterKey, save
           <Field label="Port" message={validation.fields.port?.message} tone={validation.fields.port?.tone}>
             <input value={draft.router.port} inputMode="numeric" onChange={(event) => updateRouter("port", event.target.value)} />
           </Field>
-          <Field label="Request timeout ms" message={validation.fields.requestTimeoutMs?.message} tone={validation.fields.requestTimeoutMs?.tone}>
-            <input
-              value={draft.router.requestTimeoutMs}
-              inputMode="numeric"
-              onChange={(event) => updateRouter("requestTimeoutMs", event.target.value)}
-            />
-          </Field>
           <Field label="Router API key" wide>
-            <div className="secret-row">
+            <div className="secret-row two-actions">
               <input
                 value={draft.router.apiKey}
                 type={showRouterKey ? "text" : "password"}
                 onChange={(event) => updateRouter("apiKey", event.target.value)}
               />
+              <button
+                type="button"
+                className="icon-command"
+                onClick={copyRouterApiKey}
+                title="Copy API key"
+              >
+                <Clipboard size={18} />
+              </button>
               <button
                 type="button"
                 className="icon-command"
@@ -995,6 +1320,43 @@ function RouterPage({ draft, updateRouter, showRouterKey, setShowRouterKey, save
               </button>
             </div>
           </Field>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppSettingsPage({ app, updateApp, saveAppSettings, busy }) {
+  return (
+    <div className="panel-grid single">
+      <div className="panel wide">
+        <div className="panel-toolbar">
+          <PanelHeader icon={Settings2} title="Window" />
+          <ActionButton
+            icon={Save}
+            label="Save"
+            onClick={saveAppSettings}
+            busy={busy === "saveApp"}
+            variant="primary"
+            title="Save window settings to config.json."
+          />
+        </div>
+        <div className="form-grid">
+          <div className="field wide">
+            <span>Close button</span>
+            <div className="segmented-control three">
+              {closeBehaviorOptions.map((option) => (
+                <button
+                  type="button"
+                  key={option.value}
+                  className={app.closeBehavior === option.value ? "active" : ""}
+                  onClick={() => updateApp("closeBehavior", option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1030,6 +1392,7 @@ function VendorsPage({
         {vendors.map((vendor, index) => {
           const validation = validateVendor(vendor);
           const isEnabled = vendor.enabled !== false && !validation.hasErrors;
+          const enabledModels = getVendorModels(vendor).filter((model) => model.enabled !== false);
           return (
             <section
               className={`vendor-card ${isEnabled ? "" : "disabled"} ${validation.hasErrors ? "invalid" : ""}`}
@@ -1054,7 +1417,10 @@ function VendorsPage({
                 </div>
 
                 <div className="vendor-summary">
-                  {vendor.model && <span>{vendor.model}</span>}
+                  {enabledModels.slice(0, 3).map((model) => (
+                    <span key={model.id}>{model.id}</span>
+                  ))}
+                  {enabledModels.length > 3 && <span>{enabledModels.length} models</span>}
                   {validation.errors.map((message) => (
                     <span className="summary-key danger" key={message}>{message}</span>
                   ))}
@@ -1103,7 +1469,16 @@ function VendorsPage({
 function VendorEditorPage({
   vendor,
   updateVendor,
-  openKeyModal,
+  updateVendorModel,
+  addVendorModel,
+  removeVendorModel,
+  availableModels,
+  vendorModelsError,
+  refreshVendorModels,
+  loadVendorModelsOnSelect,
+  showVendorKey,
+  setShowVendorKey,
+  copyVendorApiKey,
   saveVendor,
   revertVendor,
   busy,
@@ -1122,8 +1497,19 @@ function VendorEditorPage({
     );
   }
 
-  const keyStatus = getKeyStatus(vendor);
   const validation = validateVendor(vendor);
+  const vendorValidation = {
+    ...validation,
+    fields: {
+      ...validation.fields,
+      ...(vendorModelsError && vendorModelsError.field !== "models"
+        ? { [vendorModelsError.field]: { tone: "error", message: vendorModelsError.message } }
+        : {}),
+    },
+  };
+  const models = getVendorModels(vendor);
+  const modelOptions = getVendorModelOptions(vendor, availableModels);
+  const modelLoadMessage = getVendorModelsLoadMessage(vendor);
 
   return (
     <div className="panel-grid single">
@@ -1150,13 +1536,10 @@ function VendorEditorPage({
         <PanelHeader icon={Server} title="Vendor Settings" />
 
         <div className="vendor-form-grid">
-          <Field label="Name" message={validation.fields.name?.message} tone={validation.fields.name?.tone}>
+          <Field label="Name" message={vendorValidation.fields.name?.message} tone={vendorValidation.fields.name?.tone}>
             <input value={vendor.name || ""} onChange={(event) => updateVendor("name", event.target.value)} />
           </Field>
-          <Field label="Model" message={validation.fields.model?.message} tone={validation.fields.model?.tone}>
-            <input value={vendor.model || ""} onChange={(event) => updateVendor("model", event.target.value)} />
-          </Field>
-          <div className="field">
+          <div className={["field", vendorValidation.fields.authentication?.tone && "has-" + vendorValidation.fields.authentication.tone].filter(Boolean).join(" ")}>
             <span>Authentication</span>
             <div className="segmented-control">
               <button
@@ -1174,18 +1557,84 @@ function VendorEditorPage({
                 API key
               </button>
             </div>
+            {vendorValidation.fields.authentication?.message && (
+              <small className={"field-message " + vendorValidation.fields.authentication.tone}>{vendorValidation.fields.authentication.message}</small>
+            )}
           </div>
-          <Field label="Base URL" wide message={validation.fields.baseUrl?.message} tone={validation.fields.baseUrl?.tone}>
+          <Field label="Base URL" wide message={vendorValidation.fields.baseUrl?.message} tone={vendorValidation.fields.baseUrl?.tone}>
             <input value={vendor.baseUrl || ""} onChange={(event) => updateVendor("baseUrl", event.target.value)} />
           </Field>
           {vendor.authentication === "api-key" && (
-            <Field label="Vendor API key" wide message={validation.fields.apiKey?.message} tone={validation.fields.apiKey?.tone}>
-              <button type="button" className={`key-pill ${keyStatus.tone}`} onClick={openKeyModal}>
-                <KeyRound size={14} />
-                <span>{keyStatus.label}</span>
-              </button>
+            <Field label="Vendor API key" wide message={vendorValidation.fields.apiKey?.message} tone={vendorValidation.fields.apiKey?.tone}>
+              <div className="secret-row two-actions">
+                <input
+                  value={vendor.apiKey || ""}
+                  type={showVendorKey ? "text" : "password"}
+                  onChange={(event) => updateVendor("apiKey", event.target.value)}
+                />
+                <button type="button" className="icon-command" onClick={copyVendorApiKey} title="Copy API key">
+                  <Clipboard size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-command"
+                  onClick={() => setShowVendorKey(!showVendorKey)}
+                  title={showVendorKey ? "Hide key" : "Show key"}
+                >
+                  {showVendorKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </Field>
           )}
+          <div className={["field", "wide", vendorValidation.fields.models?.tone && "has-" + vendorValidation.fields.models.tone].filter(Boolean).join(" ")}>
+            <div className="field-toolbar">
+              <span>Models</span>
+              <div className="field-toolbar-actions">
+                <button type="button" className="mini-command" onClick={addVendorModel}>
+                  <Plus size={14} />
+                  <span>Add model</span>
+                </button>
+                <button type="button" className="mini-command" onClick={refreshVendorModels} disabled={busy === "vendorModels"}>
+                  {busy === "vendorModels" ? <Loader2 className="spin" size={14} /> : <RefreshCw size={14} />}
+                  <span>Refresh available models</span>
+                </button>
+              </div>
+            </div>
+            <div className="model-list">
+              {models.map((model, index) => (
+                <div className="model-row" key={`${model.id || "model"}-${index}`}>
+                  <label className="toggle-row compact" title={model.enabled === false ? "Enable model" : "Disable model"}>
+                    <input
+                      className="checkbox"
+                      type="checkbox"
+                      checked={model.enabled !== false}
+                      onChange={(event) => updateVendorModel(index, "enabled", event.target.checked)}
+                    />
+                    <span>{model.enabled === false ? "Off" : "On"}</span>
+                  </label>
+                  <select
+                    value={model.id || ""}
+                    onFocus={loadVendorModelsOnSelect}
+                    onMouseDown={loadVendorModelsOnSelect}
+                    onChange={(event) => updateVendorModel(index, "id", event.target.value)}
+                  >
+                    {!model.id && <option value="">Select model</option>}
+                    {modelOptions.map((modelId) => (
+                      <option value={modelId} key={modelId}>
+                        {modelId}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="icon-command danger" onClick={() => removeVendorModel(index)} title="Remove model">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {modelLoadMessage && <small className="field-message warning">{modelLoadMessage}</small>}
+            {vendorModelsError?.field === "models" && <small className="field-message error">{vendorModelsError.message}</small>}
+            {vendorValidation.fields.models?.message && <small className="field-message error">{vendorValidation.fields.models.message}</small>}
+          </div>
           <details className="advanced-section wide">
             <summary>
               <span>Advanced</span>
@@ -1195,6 +1644,7 @@ function VendorEditorPage({
               <Field label="Chat path" wide>
                 <input
                   value={vendor.chatCompletionsPath || ""}
+                  placeholder="/chat/completions"
                   onChange={(event) => updateVendor("chatCompletionsPath", event.target.value)}
                 />
               </Field>

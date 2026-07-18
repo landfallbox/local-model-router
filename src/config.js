@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const DEFAULT_CONFIG = {
+  app: {
+    closeBehavior: "tray",
+  },
   router: {
     host: "127.0.0.1",
     port: 4000,
@@ -32,11 +35,18 @@ const httpUrlSchema = z.string().trim().refine((value) => {
 }, "Enter a valid HTTP or HTTPS URL.");
 
 const statusCodeSchema = z.number().int().min(100).max(599);
+const closeBehaviorSchema = z.enum(["tray", "exit", "ask"]);
+
+export const vendorModelSchema = z.object({
+  id: z.string().trim().optional().default(""),
+  enabled: z.boolean().optional().default(true),
+}).passthrough();
 
 export const vendorSchema = z.object({
   name: z.string().trim().optional().default(""),
   baseUrl: z.string().trim().optional().default(""),
-  model: z.string().trim().optional().default(""),
+  model: z.string().trim().optional(),
+  models: z.array(vendorModelSchema).optional().default([]),
   authentication: z.enum(["none", "api-key"]).optional().default("none"),
   enabled: z.boolean().optional().default(true),
   apiKey: z.string().trim().optional(),
@@ -69,9 +79,31 @@ export const vendorSchema = z.object({
       message: `Vendor ${vendor.name || "(unnamed)"} requires an API key.`,
     });
   }
+
+  const enabledModels = vendor.models.filter((model) => model.enabled !== false);
+  if (!enabledModels.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["models"],
+      message: `Vendor ${vendor.name || "(unnamed)"} needs at least one enabled model.`,
+    });
+  }
+
+  enabledModels.forEach((model, index) => {
+    if (!model.id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["models", index, "id"],
+        message: `Vendor ${vendor.name || "(unnamed)"} has a model without an id.`,
+      });
+    }
+  });
 });
 
 export const configSchema = z.object({
+  app: z.object({
+    closeBehavior: closeBehaviorSchema.default(DEFAULT_CONFIG.app.closeBehavior),
+  }).default(DEFAULT_CONFIG.app),
   router: z.object({
     host: z.string().trim().min(1),
     port: z.number().int().min(1).max(65535),
@@ -113,10 +145,21 @@ export function isPlainObject(value) {
 
 export function normalizeConfig(config) {
   const merged = deepMerge(DEFAULT_CONFIG, isPlainObject(config) ? config : {});
+  const app = merged.app || {};
   const router = merged.router || {};
   const model = merged.model || {};
+  const normalizedModel = {
+    id: String(model.id || DEFAULT_CONFIG.model.id).trim() || DEFAULT_CONFIG.model.id,
+    name: String(model.name || DEFAULT_CONFIG.model.name).trim() || DEFAULT_CONFIG.model.name,
+    ownedBy: String(model.ownedBy || DEFAULT_CONFIG.model.ownedBy).trim() || DEFAULT_CONFIG.model.ownedBy,
+    maxInputTokens: Number(model.maxInputTokens || DEFAULT_CONFIG.model.maxInputTokens),
+    maxOutputTokens: Number(model.maxOutputTokens || DEFAULT_CONFIG.model.maxOutputTokens),
+  };
 
   return {
+    app: {
+      closeBehavior: normalizeCloseBehavior(app.closeBehavior),
+    },
     router: {
       host: String(router.host || DEFAULT_CONFIG.router.host).trim() || DEFAULT_CONFIG.router.host,
       port: Number(router.port || DEFAULT_CONFIG.router.port),
@@ -126,15 +169,13 @@ export function normalizeConfig(config) {
       fallbackStatusCodes: normalizeStatusCodes(router.fallbackStatusCodes),
       logFile: String(router.logFile || DEFAULT_CONFIG.router.logFile).trim() || DEFAULT_CONFIG.router.logFile,
     },
-    model: {
-      id: String(model.id || DEFAULT_CONFIG.model.id).trim() || DEFAULT_CONFIG.model.id,
-      name: String(model.name || DEFAULT_CONFIG.model.name).trim() || DEFAULT_CONFIG.model.name,
-      ownedBy: String(model.ownedBy || DEFAULT_CONFIG.model.ownedBy).trim() || DEFAULT_CONFIG.model.ownedBy,
-      maxInputTokens: Number(model.maxInputTokens || DEFAULT_CONFIG.model.maxInputTokens),
-      maxOutputTokens: Number(model.maxOutputTokens || DEFAULT_CONFIG.model.maxOutputTokens),
-    },
-    vendors: Array.isArray(merged.vendors) ? merged.vendors.map(normalizeVendor) : [],
+    model: normalizedModel,
+    vendors: Array.isArray(merged.vendors) ? merged.vendors.map((vendor) => normalizeVendor(vendor, normalizedModel.id)) : [],
   };
+}
+
+function normalizeCloseBehavior(value) {
+  return closeBehaviorSchema.safeParse(value).success ? value : DEFAULT_CONFIG.app.closeBehavior;
 }
 
 function normalizeStatusCodes(value) {
@@ -142,7 +183,7 @@ function normalizeStatusCodes(value) {
   return [...new Set(codes.map(Number).filter((code) => Number.isInteger(code) && code >= 100 && code <= 599))];
 }
 
-export function normalizeVendor(vendor) {
+export function normalizeVendor(vendor, defaultModelId = DEFAULT_CONFIG.model.id) {
   const authentication = vendor?.authentication === "api-key" || (!vendor?.authentication && vendor?.apiKey)
     ? "api-key"
     : "none";
@@ -150,7 +191,11 @@ export function normalizeVendor(vendor) {
     ...vendor,
     name: String(vendor?.name || "").trim(),
     baseUrl: String(vendor?.baseUrl || "").trim(),
-    model: String(vendor?.model || "").trim(),
+    models: normalizeVendorModels(vendor?.models, {
+      defaultModelId,
+      hasExplicitModels: Array.isArray(vendor?.models),
+      legacyModelId: vendor?.model,
+    }),
     authentication,
     enabled: vendor?.enabled !== false,
   };
@@ -167,12 +212,44 @@ export function normalizeVendor(vendor) {
   delete item.timeoutMs;
   delete item.apiKeyEnv;
   delete item.headers;
+  delete item.model;
 
   if (authentication === "none") {
     delete item.apiKey;
   }
 
   return item;
+}
+
+export function normalizeVendorModels(value, { defaultModelId = DEFAULT_CONFIG.model.id, hasExplicitModels = Array.isArray(value), legacyModelId = "" } = {}) {
+  const legacyId = String(legacyModelId || "").trim();
+  const fallbackId = legacyId || String(defaultModelId || DEFAULT_CONFIG.model.id).trim() || DEFAULT_CONFIG.model.id;
+
+  if (!hasExplicitModels) {
+    return [{ id: fallbackId, enabled: true }];
+  }
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((model) => normalizeVendorModel(model, fallbackId))
+    .filter((model) => model.id);
+}
+
+function normalizeVendorModel(model, fallbackId) {
+  if (typeof model === "string") {
+    const id = model.trim();
+    return { id, enabled: true };
+  }
+
+  const id = String(model?.id || model?.model || fallbackId).trim();
+  return {
+    ...model,
+    id,
+    enabled: model?.enabled !== false,
+  };
 }
 
 export function validateConfig(config, { requireVendors = true, configPath = "config.json" } = {}) {

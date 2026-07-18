@@ -11,7 +11,9 @@ import { DEFAULT_CONFIG, normalizeConfig, validateConfig } from "../../src/confi
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TRAY_REFRESH_INTERVAL_MS = 15000;
 const HIDDEN_START_ARGS = new Set(["--hidden", "--background", "--minimized", "--tray"]);
-const APP_USER_MODEL_ID = "local.local-model-router";
+const isDevelopmentRuntime = process.env.LOCAL_MODEL_ROUTER_DEV_MODE === "1";
+const APP_DISPLAY_NAME = isDevelopmentRuntime ? "Local Model Router Dev" : "Local Model Router";
+const APP_USER_MODEL_ID = isDevelopmentRuntime ? "local.local-model-router.dev" : "local.local-model-router";
 
 let mainWindow = null;
 let tray = null;
@@ -49,7 +51,7 @@ function resolveAppDir() {
 
 function getPaths() {
   const appDir = resolveAppDir();
-  const dataDir = app.isPackaged ? app.getPath("userData") : appDir;
+  const dataDir = process.env.LOCAL_MODEL_ROUTER_DATA_DIR || (app.isPackaged ? app.getPath("userData") : appDir);
   const configPath = process.env.ROUTER_CONFIG || join(dataDir, "config.json");
   const serverPath = join(appDir, "src", "server.js");
   const pidPath = join(dataDir, "router.pid");
@@ -113,14 +115,28 @@ function ensureConfigFile(paths = getPaths()) {
   }
 
   mkdirSync(dirname(paths.configPath), { recursive: true });
+  const defaultPort = clampNumber(process.env.LOCAL_MODEL_ROUTER_DEFAULT_PORT, DEFAULT_CONFIG.router.port, 1, 65535);
   const config = normalizeConfig({
     ...DEFAULT_CONFIG,
     router: {
       ...DEFAULT_CONFIG.router,
+      port: defaultPort,
       apiKey: generateRouterApiKey(),
     },
   });
   writeFileSync(paths.configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+
+function configureRuntimeIdentity() {
+  const userDataDir = process.env.LOCAL_MODEL_ROUTER_USER_DATA_DIR;
+  if (userDataDir) {
+    mkdirSync(userDataDir, { recursive: true });
+    app.setPath("userData", userDataDir);
+  }
+
+  if (isDevelopmentRuntime) {
+    app.setName(APP_DISPLAY_NAME);
+  }
 }
 
 function generateRouterApiKey() {
@@ -128,7 +144,8 @@ function generateRouterApiKey() {
 }
 
 async function readJson(path) {
-  return JSON.parse(await fs.readFile(path, "utf8"));
+  const text = await fs.readFile(path, "utf8");
+  return JSON.parse(text.replace(/^\uFEFF/, ""));
 }
 
 async function loadConfig() {
@@ -136,7 +153,7 @@ async function loadConfig() {
   ensureConfigFile(paths);
   const config = normalizeConfig(await readJson(paths.configPath));
 
-  return { config, paths, endpoint: getEndpoint(config) };
+  return { config, paths, endpoint: getEndpoint(config), appName: APP_DISPLAY_NAME, isDevelopmentRuntime };
 }
 
 function getEndpoint(config) {
@@ -149,6 +166,68 @@ function getRouterBaseUrl(config) {
   const host = config.router?.host || "127.0.0.1";
   const port = Number(config.router?.port || 4000);
   return `http://${host}:${port}`;
+}
+
+function getVendorModelsUrl(vendor) {
+  const baseUrl = String(vendor?.baseUrl || "").trim();
+  if (!baseUrl) {
+    throw new Error("Enter the vendor Base URL before refreshing models.");
+  }
+
+  const url = new URL(baseUrl);
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("Vendor Base URL must use HTTP or HTTPS.");
+  }
+
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/models`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+async function fetchVendorModels(_event, vendor) {
+  const url = getVendorModelsUrl(vendor);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  const apiKey = String(vendor?.apiKey || "").trim();
+
+  try {
+    const response = await fetch(url, {
+      headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let body = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
+
+    if (!response.ok) {
+      const upstreamError = body?.error && typeof body.error === "object" ? body.error : body;
+      const message = upstreamError?.message || text || `HTTP ${response.status}`;
+      const error = new Error(message);
+      error.code = upstreamError?.code || `HTTP_${response.status}`;
+      error.statusCode = response.status;
+      throw error;
+    }
+
+    const data = Array.isArray(body?.data) ? body.data : [];
+    const models = [...new Set(data.map((model) => String(model?.id || "").trim()).filter(Boolean))];
+    if (!models.length) {
+      throw new Error("The vendor did not return any models.");
+    }
+
+    return { models, url };
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("Refreshing models timed out.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function hasUsableVendor(config) {
@@ -688,6 +767,31 @@ function requestWindowCloseConfirmation(window) {
   window.webContents.send("app:confirmClose");
 }
 
+async function handleWindowClose(window) {
+  try {
+    const { config } = await loadConfig();
+    const closeBehavior = config.app?.closeBehavior || DEFAULT_CONFIG.app.closeBehavior;
+
+    if (closeBehavior === "exit") {
+      await quitApplication();
+      return;
+    }
+
+    if (closeBehavior === "ask") {
+      requestWindowCloseConfirmation(window);
+      return;
+    }
+
+    closePromptActive = false;
+    if (window && !window.isDestroyed()) {
+      window.hide();
+    }
+  } catch (error) {
+    showNotification("Local Model Router", `Failed to read close behavior: ${error.message || String(error)}`);
+    requestWindowCloseConfirmation(window);
+  }
+}
+
 async function quitApplication() {
   if (isQuitting) {
     return;
@@ -726,7 +830,7 @@ function createWindow({ showWhenReady = true } = {}) {
     minHeight: 700,
     icon: createAppIcon() || undefined,
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#0B1020" : "#F4F6F8",
-    title: "Local Model Router",
+    title: APP_DISPLAY_NAME,
     titleBarStyle: "default",
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
@@ -751,7 +855,7 @@ function createWindow({ showWhenReady = true } = {}) {
     }
 
     event.preventDefault();
-    requestWindowCloseConfirmation(mainWindow);
+    void handleWindowClose(mainWindow);
   });
   mainWindow.once("closed", () => {
     if (showFallback) {
@@ -796,6 +900,7 @@ function enablePackagedLoginStartup() {
   });
 }
 
+configureRuntimeIdentity();
 app.setAppUserModelId(APP_USER_MODEL_ID);
 
 ipcMain.handle("app:getState", getAppState);
@@ -825,6 +930,7 @@ ipcMain.handle("app:quitAndStop", async () => {
 });
 ipcMain.handle("config:load", loadConfig);
 ipcMain.handle("config:save", saveConfig);
+ipcMain.handle("vendor:listModels", fetchVendorModels);
 ipcMain.handle("router:start", startRouter);
 ipcMain.handle("router:stop", stopRouter);
 ipcMain.handle("router:restart", restartRouter);

@@ -122,6 +122,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -131,6 +132,7 @@ button {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -149,6 +151,11 @@ input {
   padding: 0 11px;
 }
 
+select {
+  height: 38px;
+  padding: 0 34px 0 11px;
+}
+
 textarea {
   min-height: 300px;
   padding: 12px;
@@ -156,6 +163,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--focus-ring);
@@ -607,6 +615,27 @@ h2 {
   font-weight: 750;
 }
 
+.field-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.field-toolbar > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .field-message {
   font-size: 11px;
   line-height: 1.35;
@@ -620,13 +649,15 @@ h2 {
   color: var(--danger);
 }
 
-.field.has-warning input,
-.field.has-warning .key-pill {
+.field.has-warning input {
   border-color: var(--warning-border);
 }
 
-.field.has-error input,
-.field.has-error .key-pill {
+.field.has-error input {
+  border-color: var(--danger-border);
+}
+
+.field.has-error .segmented-control {
   border-color: var(--danger-border);
 }
 
@@ -639,6 +670,10 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--input);
+}
+
+.segmented-control.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .segmented-control button {
@@ -705,6 +740,10 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 38px;
   gap: 8px;
+}
+
+.secret-row.two-actions {
+  grid-template-columns: minmax(0, 1fr) 38px 38px;
 }
 
 .icon-command {
@@ -949,6 +988,86 @@ h2 {
   color: var(--text);
 }
 
+.toggle-row.compact {
+  min-width: 76px;
+  min-height: 38px;
+}
+
+.mini-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.mini-command:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.mini-command:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.model-choice-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-alt);
+}
+
+.model-choice {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.model-choice:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.model-choice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-list {
+  display: grid;
+  gap: 9px;
+}
+
+.model-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 38px;
+  gap: 8px;
+  align-items: center;
+}
+
 .card-chevron {
   display: inline-grid;
   width: 28px;
@@ -1008,42 +1127,6 @@ h2 {
 
 .vendor-form-grid .wide {
   grid-column: 1 / -1;
-}
-
-.key-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  min-width: 92px;
-  height: 34px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-alt);
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 750;
-}
-
-.key-pill.success {
-  border-color: var(--success-border);
-  background: var(--success-soft);
-  color: var(--success);
-}
-
-.key-pill.danger {
-  border-color: var(--danger-border);
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.key-pill.warning {
-  border-color: var(--warning-border);
-  background: var(--warning-soft);
-  color: var(--warning);
 }
 
 .logs-panel {

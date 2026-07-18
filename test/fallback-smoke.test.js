@@ -106,7 +106,7 @@ async function waitForHealth(port, token = "test-token") {
   throw lastError || new Error("Router did not become healthy.");
 }
 
-async function requestChat(port, token = "test-token") {
+async function requestChat(port, token = "test-token", model = "model-id") {
   const headers = { "content-type": "application/json" };
   if (token) {
     headers.authorization = `Bearer ${token}`;
@@ -116,7 +116,7 @@ async function requestChat(port, token = "test-token") {
     method: "POST",
     headers,
     body: JSON.stringify({
-      model: "model-id",
+      model,
       messages: [{ role: "user", content: "hello" }],
     }),
   });
@@ -158,7 +158,8 @@ async function testStatusFallback() {
   const calls = { vendorA: 0, vendorB: 0 };
   const vendorA = await createMockVendor(async (req, res) => {
     calls.vendorA += 1;
-    await readBody(req);
+    const body = JSON.parse(await readBody(req));
+    assert.equal(body.model, "model-id");
     res.writeHead(429, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: { message: "rate limited" } }));
   });
@@ -174,7 +175,7 @@ async function testStatusFallback() {
   try {
     const port = await findFreePort();
     await withRouter("status-fallback", baseConfig(port, [
-      { name: "vendor-a", baseUrl: vendorA.baseUrl, apiKey: "a-key", model: "vendor-a-model" },
+      { name: "vendor-a", baseUrl: vendorA.baseUrl, apiKey: "a-key", model: "model-id" },
       { name: "vendor-b", baseUrl: vendorB.baseUrl, model: "" },
     ]), async ({ port: routerPort }) => {
       const response = await requestChat(routerPort);
@@ -279,6 +280,95 @@ async function testRouterAuth() {
       assert.equal(response.status, 401);
       assert.equal(body.error.type, "authentication_error");
       assert.equal(calls, 0);
+    });
+  } finally {
+    vendor.server.close();
+  }
+}
+
+async function testVendorModelMapping() {
+  const receivedModels = [];
+  const vendor = await createMockVendor(async (req, res) => {
+    const body = JSON.parse(await readBody(req));
+    receivedModels.push(body.model);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content: body.model } }] }));
+  });
+
+  try {
+    const port = await findFreePort();
+    await withRouter("vendor-model-mapping", baseConfig(port, [
+      {
+        name: "vendor",
+        baseUrl: vendor.baseUrl,
+        models: [
+          { id: "model-id" },
+          { id: "coder-model" },
+        ],
+      },
+    ]), async ({ port: routerPort }) => {
+      const response = await requestChat(routerPort, "test-token", "coder-model");
+      const body = await response.json();
+      assert.equal(response.status, 200);
+      assert.equal(body.choices[0].message.content, "coder-model");
+      assert.deepEqual(receivedModels, ["coder-model"]);
+
+      const missing = await requestChat(routerPort, "test-token", "missing-model");
+      const missingBody = await missing.json();
+      assert.equal(missing.status, 404);
+      assert.equal(missingBody.error.type, "model_not_found");
+    });
+  } finally {
+    vendor.server.close();
+  }
+}
+
+async function testLegacyVendorModelMigration() {
+  const receivedModels = [];
+  const vendor = await createMockVendor(async (req, res) => {
+    const body = JSON.parse(await readBody(req));
+    receivedModels.push(body.model);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content: body.model } }] }));
+  });
+
+  try {
+    const port = await findFreePort();
+    await withRouter("legacy-vendor-model", baseConfig(port, [
+      { name: "vendor", baseUrl: vendor.baseUrl, model: "legacy-model" },
+    ]), async ({ port: routerPort }) => {
+      const response = await requestChat(routerPort, "test-token", "legacy-model");
+      const body = await response.json();
+      assert.equal(response.status, 200);
+      assert.equal(body.choices[0].message.content, "legacy-model");
+      assert.deepEqual(receivedModels, ["legacy-model"]);
+    });
+  } finally {
+    vendor.server.close();
+  }
+}
+
+async function testModelsEndpointListsVendorModels() {
+  const vendor = await createMockVendor(async (req, res) => {
+    await readBody(req);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content: "ok" } }] }));
+  });
+
+  try {
+    const port = await findFreePort();
+    await withRouter("models-endpoint", baseConfig(port, [
+      { name: "vendor", baseUrl: vendor.baseUrl, models: [
+        { id: "model-id" },
+        { id: "coder-model" },
+      ] },
+    ]), async ({ port: routerPort }) => {
+      const response = await fetch(`http://127.0.0.1:${routerPort}/v1/models`, {
+        headers: { authorization: "Bearer test-token" },
+      });
+      const body = await response.json();
+      assert.equal(response.status, 200);
+      assert.deepEqual(body.data.map((model) => model.id), ["model-id", "coder-model"]);
     });
   } finally {
     vendor.server.close();
@@ -403,6 +493,9 @@ await testStatusFallback();
 await testTimeoutFallback();
 await testNonFallbackStatus();
 await testRouterAuth();
+await testVendorModelMapping();
+await testLegacyVendorModelMigration();
+await testModelsEndpointListsVendorModels();
 await testHealthRequiresAuth();
 await testHealthRedactsVendorBaseUrl();
 await testMissingRouterApiKeyFailsFast();

@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("localModelRouter", {
   quitAndStop: () => ipcRenderer.invoke("app:quitAndStop"),
   loadConfig: () => ipcRenderer.invoke("config:load"),
   saveConfig: (config) => ipcRenderer.invoke("config:save", config),
+  listVendorModels: (vendor) => ipcRenderer.invoke("vendor:listModels", vendor),
   startRouter: () => ipcRenderer.invoke("router:start"),
   stopRouter: () => ipcRenderer.invoke("router:stop"),
   restartRouter: () => ipcRenderer.invoke("router:restart"),
