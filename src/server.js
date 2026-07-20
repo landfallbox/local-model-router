@@ -1,15 +1,9 @@
 import http from "node:http";
-import { createWriteStream, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { isPlainObject, normalizeConfig, validateConfig } from "./config.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const projectRoot = resolve(__dirname, "..");
-const runtimeRoot = process.env.LOCAL_MODEL_ROUTER_DATA_DIR || projectRoot;
+import { createLogger } from "./logger.js";
+import { loadRuntimeConfig, runtimeRoot } from "./runtime-config.js";
 
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -24,134 +18,6 @@ const HOP_BY_HOP_HEADERS = new Set([
   "upgrade",
 ]);
 
-function readJsonFile(path) {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
-function loadConfig() {
-  const configPath = process.env.ROUTER_CONFIG || resolve(projectRoot, "config.json");
-  const fileConfig = existsSync(configPath) ? readJsonFile(configPath) : {};
-  const config = normalizeConfig(fileConfig);
-
-  config.router.host = process.env.HOST || process.env.ROUTER_HOST || config.router.host;
-  config.router.port = Number(process.env.PORT || process.env.ROUTER_PORT || config.router.port);
-  config.router.apiKey = process.env.ROUTER_API_KEY ?? config.router.apiKey;
-
-  if (!config.vendors.length) {
-    config.vendors = vendorsFromEnvironment();
-  }
-
-  config.vendors = config.vendors
-    .filter((vendor) => vendor.enabled !== false)
-    .map((vendor) => {
-      return {
-        ...vendor,
-        models: normalizeRuntimeVendorModels(vendor, config.model.id),
-        timeoutMs: Number(config.router.requestTimeoutMs),
-      };
-    })
-    .filter((vendor) => vendor.models.some((model) => model.enabled !== false));
-
-  validateConfig(config, { configPath });
-  return { config, configPath };
-}
-
-function normalizeRuntimeVendorModels(vendor, defaultModelId) {
-  const models = Array.isArray(vendor.models) ? vendor.models : [];
-  if (!models.length) {
-    const id = String(vendor.model || defaultModelId || "model-id").trim();
-    return [{ id, enabled: true }];
-  }
-
-  return models
-    .map((model) => ({
-      id: String(model.id || defaultModelId || "model-id").trim(),
-      enabled: model.enabled !== false,
-    }))
-    .filter((model) => model.id);
-}
-
-function vendorsFromEnvironment() {
-  const first = vendorFromEnvironment("VENDOR_A", "vendor-a");
-  const second = vendorFromEnvironment("VENDOR_B", "vendor-b");
-  return [first, second].filter(Boolean);
-}
-
-function vendorFromEnvironment(prefix, fallbackName) {
-  const baseUrl = process.env[`${prefix}_BASE_URL`];
-  const apiKey = process.env[`${prefix}_API_KEY`];
-  if (!baseUrl && !apiKey) {
-    return null;
-  }
-
-  return {
-    name: process.env[`${prefix}_NAME`] || fallbackName,
-    baseUrl,
-    apiKey,
-    model: process.env[`${prefix}_MODEL`] || "model-id",
-    authentication: apiKey ? "api-key" : "none",
-    enabled: true,
-  };
-}
-
-function createLogger(config) {
-  const logFile = config.router.logFile;
-  const resolvedLogFile = isAbsolute(logFile) ? logFile : resolve(runtimeRoot, logFile);
-  mkdirSync(dirname(resolvedLogFile), { recursive: true });
-
-  const stream = createWriteStream(resolvedLogFile, { flags: "a" });
-
-  return {
-    info(event, data = {}) {
-      writeLog(stream, "info", event, data);
-    },
-    warn(event, data = {}) {
-      writeLog(stream, "warn", event, data);
-    },
-    error(event, data = {}) {
-      writeLog(stream, "error", event, data);
-    },
-  };
-}
-
-function writeLog(stream, level, event, data) {
-  const entry = {
-    time: new Date().toISOString(),
-    level,
-    event,
-    ...redact(data),
-  };
-
-  const line = JSON.stringify(entry);
-  stream.write(`${line}\n`);
-
-  if (level === "error") {
-    console.error(line);
-  } else {
-    console.log(line);
-  }
-}
-
-function redact(value) {
-  if (Array.isArray(value)) {
-    return value.map(redact);
-  }
-
-  if (!isPlainObject(value)) {
-    return value;
-  }
-
-  const result = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (/api[_-]?key|authorization|token|secret/i.test(key)) {
-      result[key] = "[redacted]";
-    } else {
-      result[key] = redact(item);
-    }
-  }
-  return result;
-}
-
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
@@ -165,7 +31,12 @@ function getRequestPath(req) {
   return url.pathname.replace(/\/+$/, "") || "/";
 }
 
-function isAuthorized(req, config) {
+function isAuthorized(req, config, path) {
+  const managementToken = process.env.LOCAL_MODEL_ROUTER_MANAGEMENT_TOKEN;
+  if (path === "/health" && managementToken && req.headers["x-router-management-token"] === managementToken) {
+    return true;
+  }
+
   const expectedKey = config.router.apiKey;
   if (!expectedKey) {
     return true;
@@ -219,30 +90,37 @@ function createTimeoutSignal(timeoutMs) {
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   return {
     signal: controller.signal,
+    abort: () => controller.abort(),
     cancel: () => clearTimeout(timeout),
   };
 }
 
-async function callVendor(vendor, requestBody) {
-  const timeout = createTimeoutSignal(vendor.timeoutMs);
+function linkClientAbort(req, res, abort) {
+  const abortClosedResponse = () => {
+    if (!res.writableEnded) {
+      abort();
+    }
+  };
+  req.once("aborted", abort);
+  res.once("close", abortClosedResponse);
+  return () => {
+    req.off("aborted", abort);
+    res.off("close", abortClosedResponse);
+  };
+}
 
-  try {
-    const body = {
-      ...requestBody,
-      model: vendor.selectedModel.id,
-    };
+async function callVendor(vendor, requestBody, signal) {
+  const body = {
+    ...requestBody,
+    model: vendor.selectedModel.id,
+  };
 
-    const response = await fetch(buildUpstreamUrl(vendor), {
-      method: "POST",
-      headers: buildUpstreamHeaders(vendor),
-      body: JSON.stringify(body),
-      signal: timeout.signal,
-    });
-
-    return response;
-  } finally {
-    timeout.cancel();
-  }
+  return fetch(buildUpstreamUrl(vendor), {
+    method: "POST",
+    headers: buildUpstreamHeaders(vendor),
+    body: JSON.stringify(body),
+    signal,
+  });
 }
 
 function shouldFallback(statusCode, config) {
@@ -339,6 +217,8 @@ async function handleChat(req, res, config, logger) {
 
   for (const vendor of vendors) {
     const vendorStartedAt = Date.now();
+    const timeout = createTimeoutSignal(vendor.timeoutMs);
+    const unlinkClientAbort = linkClientAbort(req, res, timeout.abort);
 
     try {
       logger.info("vendor_request_started", {
@@ -348,7 +228,11 @@ async function handleChat(req, res, config, logger) {
         stream: requestBody.stream === true,
       });
 
-      const upstream = await callVendor(vendor, requestBody);
+      const upstream = await callVendor(vendor, requestBody, timeout.signal);
+      // requestTimeoutMs limits connection and response-header wait time. Once a
+      // vendor responds, long-running streams may continue until completion or
+      // until the client disconnects.
+      timeout.cancel();
       const elapsedMs = Date.now() - vendorStartedAt;
 
       if (!upstream.ok) {
@@ -402,6 +286,20 @@ async function handleChat(req, res, config, logger) {
         requestId,
         ...failure,
       });
+
+      if (req.aborted || res.destroyed) {
+        return;
+      }
+
+      // Once response bytes are committed, another vendor would corrupt the stream
+      // and may duplicate a billable upstream request.
+      if (res.headersSent) {
+        res.destroy(error);
+        return;
+      }
+    } finally {
+      unlinkClientAbort();
+      timeout.cancel();
     }
   }
 
@@ -446,6 +344,7 @@ function handleModels(_req, res, config) {
 function handleHealth(_req, res, config) {
   sendJson(res, 200, {
     ok: true,
+    instanceId: process.env.LOCAL_MODEL_ROUTER_INSTANCE_ID || "",
     model: config.model.id,
     vendorCount: config.vendors.length,
     vendors: config.vendors.map((vendor) => ({
@@ -463,7 +362,7 @@ async function handleRequest(req, res, config, logger) {
   const path = getRequestPath(req);
 
   try {
-    if (!isAuthorized(req, config)) {
+    if (!isAuthorized(req, config, path)) {
       sendJson(res, 401, {
         error: {
           message: "Invalid router API key.",
@@ -516,8 +415,9 @@ async function handleRequest(req, res, config, logger) {
 }
 
 function main() {
-  const { config, configPath } = loadConfig();
-  const logger = createLogger(config);
+  const { config, configPath } = loadRuntimeConfig();
+  const logger = createLogger(config, runtimeRoot);
+  let stopping = false;
 
   const server = http.createServer((req, res) => {
     void handleRequest(req, res, config, logger);
@@ -533,11 +433,33 @@ function main() {
     });
   });
 
-  for (const signal of ["SIGINT", "SIGTERM"]) {
-    process.on(signal, () => {
-      logger.info("router_stopping", { signal });
-      server.close(() => process.exit(0));
+  const stopRouter = (reason) => {
+    if (stopping) {
+      return;
+    }
+
+    stopping = true;
+    logger.info("router_stopping", { reason });
+    server.close(() => {
+      logger.close(() => process.exit(0));
     });
+    server.closeIdleConnections();
+    if (reason === "parent_disconnect") {
+      server.closeAllConnections();
+    }
+  };
+
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => stopRouter(signal));
+  }
+
+  if (typeof process.send === "function") {
+    process.on("message", (message) => {
+      if (message?.type === "shutdown") {
+        stopRouter("parent_request");
+      }
+    });
+    process.on("disconnect", () => stopRouter("parent_disconnect"));
   }
 }
 

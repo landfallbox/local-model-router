@@ -52,7 +52,7 @@ async function startRouter(configPath) {
       ...process.env,
       ROUTER_CONFIG: configPath,
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
 
   router.stdout.setEncoding("utf8");
@@ -69,7 +69,7 @@ async function stopRouter(router) {
   await once(router, "exit");
 }
 
-async function waitForProcessClose(router, timeoutMs = 5000) {
+async function waitForProcessClose(router, timeoutMs = 5000, context = "Router") {
   let timeout;
 
   try {
@@ -77,8 +77,26 @@ async function waitForProcessClose(router, timeoutMs = 5000) {
       once(router, "close"),
       new Promise((_, reject) => {
         timeout = setTimeout(() => {
-          reject(new Error("Router did not fail fast."));
+          reject(new Error(`${context} did not exit in time (exitCode=${router.exitCode}, signalCode=${router.signalCode}).`));
         }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function waitForProcessExit(router, timeoutMs = 5000, context = "Router") {
+  if (router.exitCode !== null || router.signalCode !== null) {
+    return [router.exitCode, router.signalCode];
+  }
+
+  let timeout;
+  try {
+    return await Promise.race([
+      once(router, "exit"),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${context} did not exit in time.`)), timeoutMs);
       }),
     ]);
   } finally {
@@ -95,6 +113,7 @@ async function waitForHealth(port, token = "test-token") {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/health`, { headers });
       if (response.ok) {
+        await response.arrayBuffer();
         return;
       }
     } catch (error) {
@@ -225,6 +244,117 @@ async function testTimeoutFallback() {
   } finally {
     slow.server.close();
     fast.server.close();
+  }
+}
+
+async function testLongStreamOutlivesResponseTimeout() {
+  const chunks = ["data: one\n\n", "data: two\n\n", "data: three\n\n"];
+  const vendor = await createMockVendor(async (req, res) => {
+    await readBody(req);
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.flushHeaders();
+    for (const chunk of chunks) {
+      await new Promise((resolve) => setTimeout(resolve, 90));
+      res.write(chunk);
+    }
+    res.end();
+  });
+
+  try {
+    const port = await findFreePort();
+    await withRouter("long-stream", baseConfig(port, [
+      { name: "streaming", baseUrl: vendor.baseUrl, model: "model-id" },
+    ], { router: { requestTimeoutMs: 100 } }), async ({ port: routerPort }) => {
+      const response = await requestChat(routerPort);
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), chunks.join(""));
+    });
+  } finally {
+    vendor.server.close();
+  }
+}
+
+async function testNoFallbackAfterPartialStream() {
+  const calls = { partial: 0, fallback: 0 };
+  const partial = await createMockVendor(async (req, res) => {
+    calls.partial += 1;
+    await readBody(req);
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write("data: first\n\n");
+    setTimeout(() => res.destroy(new Error("upstream stream failed")), 50);
+  });
+  const fallback = await createMockVendor(async (req, res) => {
+    calls.fallback += 1;
+    await readBody(req);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content: "must not run" } }] }));
+  });
+
+  try {
+    const port = await findFreePort();
+    await withRouter("partial-stream", baseConfig(port, [
+      { name: "partial", baseUrl: partial.baseUrl, model: "model-id" },
+      { name: "fallback", baseUrl: fallback.baseUrl, model: "model-id" },
+    ]), async ({ port: routerPort }) => {
+      const response = await requestChat(routerPort);
+      const reader = response.body.getReader();
+      const first = await reader.read();
+      assert.equal(Buffer.from(first.value).toString("utf8"), "data: first\n\n");
+      await assert.rejects(() => reader.read());
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(calls.partial, 1);
+      assert.equal(calls.fallback, 0);
+    });
+  } finally {
+    partial.server.close();
+    fallback.server.close();
+  }
+}
+
+async function testClientAbortStopsFallback() {
+  const calls = { slow: 0, fallback: 0 };
+  const slow = await createMockVendor(async (req, res) => {
+    calls.slow += 1;
+    await readBody(req);
+    setTimeout(() => {
+      if (!res.destroyed) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("{}");
+      }
+    }, 500);
+  });
+  const fallback = await createMockVendor(async (req, res) => {
+    calls.fallback += 1;
+    await readBody(req);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end("{}");
+  });
+
+  try {
+    const port = await findFreePort();
+    await withRouter("client-abort", baseConfig(port, [
+      { name: "slow", baseUrl: slow.baseUrl, model: "model-id" },
+      { name: "fallback", baseUrl: fallback.baseUrl, model: "model-id" },
+    ]), async ({ port: routerPort }) => {
+      const controller = new AbortController();
+      const request = fetch(`http://127.0.0.1:${routerPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ model: "model-id", messages: [] }),
+        signal: controller.signal,
+      });
+      setTimeout(() => controller.abort(), 50);
+      await assert.rejects(request, (error) => error.name === "AbortError");
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      assert.equal(calls.slow, 1);
+      assert.equal(calls.fallback, 0);
+    });
+  } finally {
+    slow.server.close();
+    fallback.server.close();
   }
 }
 
@@ -489,8 +619,49 @@ async function testNoVendorsFailsFast() {
   }
 }
 
+async function testParentIpcStopsRouterGracefully() {
+  const port = await findFreePort();
+  const configPath = writeConfig("parent-ipc-shutdown", baseConfig(port, [{
+    name: "primary",
+    baseUrl: "http://127.0.0.1:1/v1",
+    models: [{ id: "model-id", enabled: true }],
+  }]));
+  const router = await startRouter(configPath);
+
+  try {
+    await waitForHealth(port);
+    router.send({ type: "shutdown" });
+    const [code] = await waitForProcessExit(router, 5000, "Router after parent shutdown request");
+    assert.equal(code, 0);
+  } finally {
+    await stopRouter(router);
+  }
+}
+
+async function testParentDisconnectStopsRouter() {
+  const port = await findFreePort();
+  const configPath = writeConfig("parent-ipc-disconnect", baseConfig(port, [{
+    name: "primary",
+    baseUrl: "http://127.0.0.1:1/v1",
+    models: [{ id: "model-id", enabled: true }],
+  }]));
+  const router = await startRouter(configPath);
+
+  try {
+    await waitForHealth(port);
+    router.disconnect();
+    const [code] = await waitForProcessExit(router, 5000, "Router after parent disconnect");
+    assert.equal(code, 0);
+  } finally {
+    await stopRouter(router);
+  }
+}
+
 await testStatusFallback();
 await testTimeoutFallback();
+await testLongStreamOutlivesResponseTimeout();
+await testNoFallbackAfterPartialStream();
+await testClientAbortStopsFallback();
 await testNonFallbackStatus();
 await testRouterAuth();
 await testVendorModelMapping();
@@ -501,5 +672,7 @@ await testHealthRedactsVendorBaseUrl();
 await testMissingRouterApiKeyFailsFast();
 await testUpstreamErrorLogRedaction();
 await testNoVendorsFailsFast();
+await testParentIpcStopsRouterGracefully();
+await testParentDisconnectStopsRouter();
 
 console.log("fallback smoke tests passed");

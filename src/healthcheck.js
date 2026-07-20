@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { getRouterBaseUrl } from "./router-urls.js";
 
 const configPath = process.env.ROUTER_CONFIG || resolve("config.json");
 const config = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : {};
@@ -8,7 +9,7 @@ const port = process.env.ROUTER_PORT || process.env.PORT || config.router?.port 
 const apiKey = process.env.ROUTER_API_KEY ?? config.router?.apiKey ?? "";
 const headers = apiKey ? { authorization: `Bearer ${apiKey}` } : {};
 
-const response = await fetch(`http://${host}:${port}/health`, { headers });
+const response = await fetch(`${getRouterBaseUrl({ router: { host, port } })}/health`, { headers });
 const body = await response.text();
 
 console.log(body);
