@@ -16,6 +16,7 @@ The router tries enabled vendors in priority order. If the current vendor times 
 - Local vendor priority and fallback configuration.
 - Local API key required for access.
 - Electron GUI for configuration, status, logs, and tray control.
+- Optional Windows login startup, disabled by default.
 - Structured logs without API keys, authorization headers, secrets, or upstream response bodies.
 
 ## Quick Start
@@ -103,6 +104,18 @@ Example client entry:
 
 ## Development
 
+The main runtime boundaries are:
+
+- `src/server.js`: HTTP routing, upstream failover, and stream ownership.
+- `src/runtime-config.js`: file and environment configuration for the Router process.
+- `src/logger.js`: structured logging and recursive secret redaction.
+- `gui/electron/main.js`: Electron lifecycle, tray, IPC registration, and orchestration.
+- `gui/electron/config-store.js`: validated, revision-checked, atomic configuration writes.
+- `gui/electron/log-store.js`: byte-cursor log pagination.
+- `gui/src/config-draft.js`: lossless conversion between persisted configuration and form state.
+
+Router processes started by the desktop app are owned by the Electron main process and do not outlive an explicit app exit. The current app session uses a private parent-child IPC channel for graceful shutdown, with forced termination only as a timeout fallback. PID metadata and instance identity are retained for recovery after an abnormal app exit; a Router started outside the app is reported as external and is not terminated automatically.
+
 Build the renderer:
 
 ```powershell
@@ -148,10 +161,11 @@ Run checks:
 ```powershell
 npm run check
 npm test
+npm run test:electron
 npm run gui:build
 ```
 
-CI runs the same checks on Windows.
+`npm test` contains the fast Router and repository tests. `npm run test:electron` launches the real Electron development app with isolated temporary configuration, verifies that it owns the Router process, verifies that hiding the window to the tray keeps Router running, and verifies that an explicit app exit stops Router. CI runs this Electron lifecycle suite in a separate Windows job so desktop failures do not obscure the fast test results.
 
 ## Security And Contributing
 
