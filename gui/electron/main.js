@@ -1,12 +1,15 @@
 import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, Notification, shell, Tray } from "electron";
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { closeSync, existsSync, openSync } from "node:fs";
 import fs from "node:fs/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_CONFIG, normalizeConfig, validateConfig } from "../../src/config.js";
+import { DEFAULT_CONFIG, normalizeConfig } from "../../src/config.js";
+import { getChatCompletionsUrl, getRouterBaseUrl } from "../../src/router-urls.js";
+import { readConfigStore, writeConfigStore } from "./config-store.js";
+import { ensureLogFile, readLogPage, resolveLogPath } from "./log-store.js";
 import {
   checkForUpdates,
   downloadUpdate,
@@ -31,6 +34,8 @@ let trayBusyAction = "";
 let isQuitting = false;
 let closePromptActive = false;
 let trayStatus = { label: "Checking", detail: "", isRouterActive: false };
+let routerLifecycleQueue = Promise.resolve();
+let managedRouterChild = null;
 const windowsToShowOnReady = new WeakSet();
 
 function resolveAppDir() {
@@ -152,29 +157,16 @@ function generateRouterApiKey() {
   return `lmr_${randomBytes(24).toString("base64url")}`;
 }
 
-async function readJson(path) {
-  const text = await fs.readFile(path, "utf8");
-  return JSON.parse(text.replace(/^\uFEFF/, ""));
-}
-
 async function loadConfig() {
   const paths = getPaths();
   ensureConfigFile(paths);
-  const config = normalizeConfig(await readJson(paths.configPath));
+  const { config, revision } = await readConfigStore(paths.configPath);
 
-  return { config, paths, endpoint: getEndpoint(config), appName: APP_DISPLAY_NAME, isDevelopmentRuntime };
+  return { config, revision, paths, endpoint: getEndpoint(config), appName: APP_DISPLAY_NAME, isDevelopmentRuntime };
 }
 
 function getEndpoint(config) {
-  const host = config.router?.host || "127.0.0.1";
-  const port = Number(config.router?.port || 4000);
-  return `http://${host}:${port}/v1/chat/completions`;
-}
-
-function getRouterBaseUrl(config) {
-  const host = config.router?.host || "127.0.0.1";
-  const port = Number(config.router?.port || 4000);
-  return `http://${host}:${port}`;
+  return getChatCompletionsUrl(config);
 }
 
 function getVendorModelsUrl(vendor) {
@@ -198,7 +190,7 @@ async function fetchVendorModels(_event, vendor) {
   const url = getVendorModelsUrl(vendor);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
-  const apiKey = String(vendor?.apiKey || "").trim();
+  const apiKey = vendor?.authentication === "api-key" ? String(vendor?.apiKey || "").trim() : "";
 
   try {
     const response = await fetch(url, {
@@ -267,40 +259,42 @@ function isUsableVendor(vendor) {
   return authentication !== "api-key" || Boolean(vendor.apiKey);
 }
 
-async function saveConfig(_event, config) {
+async function saveConfig(_event, payload) {
   const { paths } = await loadConfig();
-  const normalized = normalizeConfig(config);
-  validateConfig(normalized, { requireVendors: false, configPath: paths.configPath });
-  await fs.writeFile(paths.configPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
-  return { config: normalized, paths, endpoint: getEndpoint(normalized) };
+  const config = payload?.config || payload;
+  const revision = payload?.revision || "";
+  const saved = await writeConfigStore(paths.configPath, config, revision);
+  applyPackagedLoginStartup(saved.config.app.startAtLogin);
+  return { ...saved, paths, endpoint: getEndpoint(saved.config) };
 }
 
 async function countRouterProcesses(paths = getPaths()) {
-  return (await getManagedRouterPid(paths)) ? 1 : 0;
+  return (await getManagedRouterMetadata(paths)) ? 1 : 0;
 }
 
-async function getManagedRouterPid(paths = getPaths()) {
+async function getManagedRouterMetadata(paths = getPaths()) {
   try {
-    const pid = Number((await fs.readFile(paths.pidPath, "utf8")).trim());
-    if (!Number.isInteger(pid) || pid <= 0) {
+    const metadata = JSON.parse(await fs.readFile(paths.pidPath, "utf8"));
+    if (!Number.isInteger(metadata.pid) || metadata.pid <= 0 || !metadata.instanceId) {
       await removeRouterPid(paths);
-      return 0;
+      return null;
     }
 
-    if (await isProcessRunning(pid)) {
-      return pid;
+    if (await isProcessRunning(metadata.pid)) {
+      return metadata;
     }
 
     await removeRouterPid(paths);
-    return 0;
+    return null;
   } catch {
-    return 0;
+    await removeRouterPid(paths);
+    return null;
   }
 }
 
-async function writeRouterPid(paths, pid) {
+async function writeRouterPid(paths, metadata) {
   mkdirSync(dirname(paths.pidPath), { recursive: true });
-  await fs.writeFile(paths.pidPath, `${pid}\n`, "utf8");
+  await fs.writeFile(paths.pidPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
 }
 
 async function removeRouterPid(paths = getPaths()) {
@@ -320,7 +314,17 @@ async function isProcessRunning(pid) {
   }
 }
 
-async function startRouter() {
+function enqueueRouterLifecycle(operation) {
+  const result = routerLifecycleQueue.then(operation, operation);
+  routerLifecycleQueue = result.catch(() => null);
+  return result;
+}
+
+function startRouter() {
+  return enqueueRouterLifecycle(startRouterInternal);
+}
+
+async function startRouterInternal() {
   const { config, paths } = await loadConfig();
 
   if (!hasUsableVendor(config)) {
@@ -337,19 +341,23 @@ async function startRouter() {
 
   const processLog = await prepareProcessLog(paths);
   const processLogFd = openSync(processLog.path, "a");
+  const instanceId = randomUUID();
+  const managementToken = randomBytes(32).toString("base64url");
   let child;
   try {
     child = spawn(paths.nodePath, [paths.serverPath], {
       cwd: paths.appDir,
-      detached: true,
       env: {
         ...process.env,
         ROUTER_CONFIG: paths.configPath,
         LOCAL_MODEL_ROUTER_DATA_DIR: paths.dataDir,
+        LOCAL_MODEL_ROUTER_INSTANCE_ID: instanceId,
+        LOCAL_MODEL_ROUTER_MANAGEMENT_TOKEN: managementToken,
       },
-      stdio: ["ignore", processLogFd, processLogFd],
+      stdio: ["ignore", processLogFd, processLogFd, "ipc"],
       windowsHide: true,
     });
+    trackManagedRouterChild(child, paths, instanceId);
   } finally {
     closeSync(processLogFd);
   }
@@ -365,11 +373,16 @@ async function startRouter() {
     return { started: false, via: "process", health: failedHealth, error: message };
   }
 
-  child.unref();
-  await writeRouterPid(paths, child.pid);
-  const health = await waitForHealth(config);
-  if (!health.ok) {
-    await terminateProcess(child.pid);
+  await writeRouterPid(paths, {
+    pid: child.pid,
+    instanceId,
+    managementToken,
+    configPath: paths.configPath,
+    startedAt: new Date().toISOString(),
+  });
+  const health = await waitForHealth(config, { managementToken });
+  if (!health.ok || health.body?.instanceId !== instanceId) {
+    await stopManagedRouterChild(child);
     await removeRouterPid(paths);
     const output = await readProcessLogSince(processLog.path, processLog.offset);
     const detail = summarizeProcessOutput(output) || health.error || "Router process exited before becoming healthy.";
@@ -387,6 +400,33 @@ async function startRouter() {
   }
   await refreshTrayStatus(health);
   return { started: true, via: "process", pid: child.pid, health };
+}
+
+function trackManagedRouterChild(child, paths, instanceId) {
+  managedRouterChild = child;
+
+  const clearManagedChild = () => {
+    if (managedRouterChild === child) {
+      managedRouterChild = null;
+    }
+    void removeRouterPidForInstance(paths, instanceId);
+  };
+
+  child.once("exit", clearManagedChild);
+  child.once("error", () => {
+    if (!child.pid) {
+      clearManagedChild();
+    }
+  });
+}
+
+async function removeRouterPidForInstance(paths, instanceId) {
+  try {
+    const metadata = JSON.parse(await fs.readFile(paths.pidPath, "utf8"));
+    if (metadata.instanceId === instanceId) {
+      await removeRouterPid(paths);
+    }
+  } catch {}
 }
 
 async function prepareProcessLog(paths) {
@@ -447,19 +487,90 @@ async function recordRouterStartFailure(config, message, processLogPath) {
   }
 }
 
-async function stopRouter() {
-  const paths = getPaths();
-  const pid = await getManagedRouterPid(paths);
+function stopRouter() {
+  return enqueueRouterLifecycle(stopRouterInternal);
+}
 
-  if (pid) {
-    await terminateProcess(pid);
+async function stopRouterInternal() {
+  const paths = getPaths();
+  const child = getRunningManagedRouterChild();
+  if (child) {
+    await stopManagedRouterChild(child);
+    await removeRouterPid(paths);
+
+    const health = await getHealth();
+    await refreshTrayStatus(health);
+    return { stopped: true, health };
   }
+
+  const metadata = await getManagedRouterMetadata(paths);
+
+  if (!metadata) {
+    const health = await getHealth(null, { includeProcessCount: false });
+    if (health.ok) {
+      throw new Error("The running Router is not managed by this app instance and cannot be stopped safely.");
+    }
+    return { stopped: true, health };
+  }
+
+  const { config } = await loadConfig();
+  const managedHealth = await getHealth(config, { includeProcessCount: false, managementToken: metadata.managementToken });
+  if (managedHealth.body?.instanceId !== metadata.instanceId) {
+    throw new Error("Refusing to stop a process whose Router instance identity could not be verified.");
+  }
+  await terminateProcess(metadata.pid);
 
   await removeRouterPid(paths);
 
   const health = await getHealth();
   await refreshTrayStatus(health);
   return { stopped: true, health };
+}
+
+function getRunningManagedRouterChild() {
+  if (!managedRouterChild || managedRouterChild.exitCode !== null || managedRouterChild.signalCode !== null) {
+    return null;
+  }
+  return managedRouterChild;
+}
+
+async function stopManagedRouterChild(child, timeoutMs = 3000) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  if (child.connected) {
+    try {
+      child.send({ type: "shutdown" }, () => {});
+    } catch {}
+  }
+
+  if (await waitForChildExit(child, timeoutMs)) {
+    return;
+  }
+
+  child.kill("SIGKILL");
+  if (!await waitForChildExit(child, timeoutMs)) {
+    throw new Error("Router process did not exit after forced termination.");
+  }
+}
+
+function waitForChildExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolvePromise) => {
+    const onExit = () => {
+      clearTimeout(timeout);
+      resolvePromise(true);
+    };
+    const timeout = setTimeout(() => {
+      child.off("exit", onExit);
+      resolvePromise(false);
+    }, timeoutMs);
+    child.once("exit", onExit);
+  });
 }
 
 async function terminateProcess(pid) {
@@ -492,21 +603,23 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   }
 }
 
-async function restartRouter() {
-  await stopRouter();
-  return startRouter();
+function restartRouter() {
+  return enqueueRouterLifecycle(async () => {
+    await stopRouterInternal();
+    return startRouterInternal();
+  });
 }
 
-async function waitForHealth(config) {
+async function waitForHealth(config, options = {}) {
   for (let index = 0; index < 8; index += 1) {
-    const health = await getHealth(config, { includeProcessCount: false });
+    const health = await getHealth(config, { ...options, includeProcessCount: false });
     if (health.ok) {
       return health;
     }
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
   }
 
-  return getHealth(config);
+  return getHealth(config, options);
 }
 
 async function getHealth(configArg = null, options = {}) {
@@ -515,9 +628,11 @@ async function getHealth(configArg = null, options = {}) {
   const url = `${getRouterBaseUrl(loaded.config)}/health`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2500);
-  const headers = loaded.config.router.apiKey
-    ? { authorization: `Bearer ${loaded.config.router.apiKey}` }
-    : {};
+  const headers = options.managementToken
+    ? { "x-router-management-token": options.managementToken }
+    : loaded.config.router.apiKey
+      ? { authorization: `Bearer ${loaded.config.router.apiKey}` }
+      : {};
 
   try {
     const response = await fetch(url, { headers, signal: controller.signal });
@@ -529,13 +644,14 @@ async function getHealth(configArg = null, options = {}) {
       body = null;
     }
 
+    const processCount = !response.ok && includeProcessCount ? await countRouterProcesses(loaded.paths) : 0;
     return {
       ok: response.ok,
       status: response.status,
       url,
       body,
       text,
-      processCount: 0,
+      processCount,
     };
   } catch (error) {
     return {
@@ -551,8 +667,7 @@ async function getHealth(configArg = null, options = {}) {
 
 async function getLogPath(configArg = null) {
   const { config, paths } = configArg ? { config: configArg, paths: getPaths() } : await loadConfig();
-  const logFile = config.router?.logFile || DEFAULT_CONFIG.router.logFile;
-  return isAbsolute(logFile) ? logFile : join(paths.dataDir, logFile);
+  return resolveLogPath(config, paths.dataDir);
 }
 
 async function readLogs(_event, options = {}) {
@@ -576,44 +691,6 @@ function clampNumber(value, fallback, min, max) {
   return Math.min(max, Math.max(min, Math.trunc(number)));
 }
 
-async function readLogPage(logPath, { limit, before }) {
-  const handle = await fs.open(logPath, "r");
-  try {
-    const stat = await handle.stat();
-    let position = before === null ? stat.size : Math.min(before, stat.size);
-    const lines = [];
-    let carry = "";
-    const bufferSize = 64 * 1024;
-
-    while (position > 0 && lines.length <= limit) {
-      const readSize = Math.min(bufferSize, position);
-      position -= readSize;
-      const buffer = Buffer.allocUnsafe(readSize);
-      await handle.read(buffer, 0, readSize, position);
-      const parts = (buffer.toString("utf8") + carry).split(/\r?\n/);
-      carry = parts.shift() || "";
-      for (let index = parts.length - 1; index >= 0 && lines.length <= limit; index -= 1) {
-        if (parts[index]) {
-          lines.unshift(parts[index]);
-        }
-      }
-    }
-
-    if (position === 0 && carry && lines.length < limit) {
-      lines.unshift(carry);
-    }
-
-    return {
-      path: logPath,
-      lines: lines.slice(-limit),
-      nextBefore: position > 0 || lines.length > limit ? Math.max(0, position) : null,
-      hasMore: position > 0 || lines.length > limit,
-    };
-  } finally {
-    await handle.close();
-  }
-}
-
 async function openConfigFile() {
   const { paths } = await loadConfig();
   return shell.openPath(paths.configPath);
@@ -621,10 +698,7 @@ async function openConfigFile() {
 
 async function openLogFile() {
   const logPath = await getLogPath();
-  mkdirSync(dirname(logPath), { recursive: true });
-  if (!existsSync(logPath)) {
-    await fs.writeFile(logPath, "", "utf8");
-  }
+  await ensureLogFile(logPath);
   return shell.openPath(logPath);
 }
 
@@ -866,9 +940,20 @@ async function installDownloadedUpdate() {
     await stopRouter();
   } catch (error) {
     showNotification("Local Model Router", `Failed to stop Router before update: ${error.message || String(error)}`);
+    isQuitting = false;
+    trayBusyAction = "";
+    updateTrayMenu();
+    throw error;
   }
 
-  return installUpdate();
+  try {
+    return installUpdate();
+  } catch (error) {
+    isQuitting = false;
+    trayBusyAction = "";
+    updateTrayMenu();
+    throw error;
+  }
 }
 
 function handleUpdateStateChanged() {
@@ -1031,6 +1116,11 @@ function createWindow({ showWhenReady = true } = {}) {
     mainWindow = null;
   });
 
+  mainWindow.webContents.on("will-navigate", (event) => {
+    event.preventDefault();
+  });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl) {
     mainWindow.loadURL(validateRendererUrl(rendererUrl));
@@ -1054,23 +1144,32 @@ function validateRendererUrl(value) {
   return url.toString();
 }
 
-function enablePackagedLoginStartup() {
+function applyPackagedLoginStartup(enabled) {
   if (!app.isPackaged || process.platform !== "win32") {
     return;
   }
 
   app.setLoginItemSettings({
-    openAtLogin: true,
+    openAtLogin: enabled === true,
     path: process.execPath,
     args: ["--hidden"],
+  });
+}
+
+function registerIpcHandler(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      throw new Error(`Rejected IPC request from an untrusted sender: ${channel}`);
+    }
+    return handler(event, ...args);
   });
 }
 
 configureRuntimeIdentity();
 app.setAppUserModelId(APP_USER_MODEL_ID);
 
-ipcMain.handle("app:getState", getAppState);
-ipcMain.handle("app:rendererReady", (event) => {
+registerIpcHandler("app:getState", getAppState);
+registerIpcHandler("app:rendererReady", (event) => {
   const window = BrowserWindow.fromWebContents(event.sender);
   if (window && !window.isDestroyed() && windowsToShowOnReady.has(window) && !window.isVisible()) {
     window.show();
@@ -1078,38 +1177,38 @@ ipcMain.handle("app:rendererReady", (event) => {
   }
   return { ok: true };
 });
-ipcMain.handle("app:hideToTray", () => {
+registerIpcHandler("app:hideToTray", () => {
   closePromptActive = false;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.hide();
   }
   return { ok: true };
 });
-ipcMain.handle("app:cancelClose", () => {
+registerIpcHandler("app:cancelClose", () => {
   closePromptActive = false;
   return { ok: true };
 });
-ipcMain.handle("app:quitAndStop", async () => {
+registerIpcHandler("app:quitAndStop", async () => {
   closePromptActive = false;
   await quitApplication();
   return { ok: true };
 });
-ipcMain.handle("config:load", loadConfig);
-ipcMain.handle("config:save", saveConfig);
-ipcMain.handle("vendor:listModels", fetchVendorModels);
-ipcMain.handle("router:start", startRouter);
-ipcMain.handle("router:stop", stopRouter);
-ipcMain.handle("router:restart", restartRouter);
-ipcMain.handle("router:health", (_event, options) => getHealth(null, options));
-ipcMain.handle("logs:read", readLogs);
-ipcMain.handle("file:openConfig", openConfigFile);
-ipcMain.handle("file:openLog", openLogFile);
-ipcMain.handle("update:getState", getUpdateState);
-ipcMain.handle("update:check", (_event, options) => checkForUpdates(options));
-ipcMain.handle("update:download", downloadUpdate);
-ipcMain.handle("update:install", installDownloadedUpdate);
-ipcMain.handle("update:openReleasePage", openReleasePage);
-ipcMain.handle("clipboard:writeText", (_event, text) => {
+registerIpcHandler("config:load", loadConfig);
+registerIpcHandler("config:save", saveConfig);
+registerIpcHandler("vendor:listModels", fetchVendorModels);
+registerIpcHandler("router:start", startRouter);
+registerIpcHandler("router:stop", stopRouter);
+registerIpcHandler("router:restart", restartRouter);
+registerIpcHandler("router:health", (_event, options) => getHealth(null, options));
+registerIpcHandler("logs:read", readLogs);
+registerIpcHandler("file:openConfig", openConfigFile);
+registerIpcHandler("file:openLog", openLogFile);
+registerIpcHandler("update:getState", getUpdateState);
+registerIpcHandler("update:check", (_event, options) => checkForUpdates(options));
+registerIpcHandler("update:download", downloadUpdate);
+registerIpcHandler("update:install", installDownloadedUpdate);
+registerIpcHandler("update:openReleasePage", openReleasePage);
+registerIpcHandler("clipboard:writeText", (_event, text) => {
   clipboard.writeText(String(text || ""));
   return { ok: true };
 });
@@ -1129,7 +1228,12 @@ if (!hasSingleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
-    enablePackagedLoginStartup();
+    try {
+      const { config } = await loadConfig();
+      applyPackagedLoginStartup(config.app.startAtLogin);
+    } catch (error) {
+      showNotification("Local Model Router", `Failed to load startup settings: ${error.message || String(error)}`);
+    }
     initializeUpdater();
     onUpdateState(handleUpdateStateChanged);
     createTray();

@@ -25,6 +25,13 @@ import {
   XCircle,
   X,
 } from "lucide-react";
+import {
+  defaultDraft,
+  getVendorModels,
+  normalizeVendorModelsForDraft,
+  toConfig,
+  toDraft,
+} from "./config-draft.js";
 
 function getDesktopApi() {
   if (!window.localModelRouter) {
@@ -33,29 +40,6 @@ function getDesktopApi() {
 
   return window.localModelRouter;
 }
-
-const defaultDraft = {
-  app: {
-    closeBehavior: "tray",
-  },
-  router: {
-    host: "127.0.0.1",
-    port: "4000",
-    apiKey: "",
-    requestTimeoutMs: "30000",
-    maxBodyMb: "50",
-    fallbackStatusCodesText: "408, 409, 425, 429, 500, 502, 503, 504",
-    logFile: "logs/router.log",
-  },
-  model: {
-    id: "model-id",
-    name: "Model Name",
-    ownedBy: "local-router",
-    maxInputTokens: "200000",
-    maxOutputTokens: "64000",
-  },
-  vendors: [],
-};
 
 const defaultAppName = "Local Model Router";
 
@@ -81,44 +65,6 @@ const closeBehaviorOptions = [
   { value: "exit", label: "Exit and stop" },
   { value: "ask", label: "Ask every time" },
 ];
-
-function normalizeCloseBehavior(value) {
-  return closeBehaviorOptions.some((option) => option.value === value) ? value : defaultDraft.app.closeBehavior;
-}
-
-function normalizeVendorModelsForDraft(vendor, defaultModelId = defaultDraft.model.id) {
-  const fallbackId = String(defaultModelId || defaultDraft.model.id).trim() || defaultDraft.model.id;
-  if (!Array.isArray(vendor?.models)) {
-    const id = String(vendor?.model || fallbackId).trim() || fallbackId;
-    return [{ id, enabled: true }];
-  }
-
-  return vendor.models
-    .map((model) => normalizeVendorModelForDraft(model, fallbackId))
-}
-
-function normalizeVendorModelForDraft(model, fallbackId = defaultDraft.model.id) {
-  if (typeof model === "string") {
-    const id = model.trim();
-    return { id, enabled: true };
-  }
-
-  if (!model || typeof model !== "object") {
-    return { id: fallbackId, enabled: true };
-  }
-
-  const hasExplicitId = Object.prototype.hasOwnProperty.call(model, "id");
-  const id = String(hasExplicitId ? model.id || "" : model.model || fallbackId).trim();
-  return {
-    ...model,
-    id,
-    enabled: model?.enabled !== false,
-  };
-}
-
-function getVendorModels(vendor, defaultModelId = defaultDraft.model.id) {
-  return normalizeVendorModelsForDraft(vendor, defaultModelId);
-}
 
 function getVendorModelOptions(vendor, availableModels = []) {
   return [
@@ -170,114 +116,6 @@ function canLoadVendorModels(vendor) {
     return false;
   }
   return vendor?.authentication !== "api-key" || Boolean(vendor?.apiKey);
-}
-
-function toDraft(config) {
-  const app = config.app || {};
-  const router = config.router || {};
-  const model = config.model || {};
-  const modelId = model.id || defaultDraft.model.id;
-
-  return {
-    app: {
-      closeBehavior: normalizeCloseBehavior(app.closeBehavior),
-    },
-    router: {
-      host: router.host || "127.0.0.1",
-      port: String(router.port ?? 4000),
-      apiKey: router.apiKey || "",
-      requestTimeoutMs: String(router.requestTimeoutMs ?? 30000),
-      maxBodyMb: String(Math.max(1, Math.round(Number(router.maxBodyBytes || 52428800) / 1048576))),
-      fallbackStatusCodesText: Array.isArray(router.fallbackStatusCodes)
-        ? router.fallbackStatusCodes.join(", ")
-        : defaultDraft.router.fallbackStatusCodesText,
-      logFile: router.logFile || "logs/router.log",
-    },
-    model: {
-      id: model.id || "model-id",
-      name: model.name || "Model Name",
-      ownedBy: model.ownedBy || "local-router",
-      maxInputTokens: String(model.maxInputTokens ?? 200000),
-      maxOutputTokens: String(model.maxOutputTokens ?? 64000),
-    },
-    vendors: Array.isArray(config.vendors)
-      ? config.vendors.map((vendor) => ({
-          ...vendor,
-          models: normalizeVendorModelsForDraft(vendor, modelId),
-          authentication: vendor.authentication === "api-key" || vendor.apiKey ? "api-key" : "none",
-        }))
-      : [],
-  };
-}
-
-function parseStatusCodes(value) {
-  const codes = value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => {
-      const code = Number(item);
-      if (!Number.isInteger(code) || code < 100 || code > 599) {
-        throw new Error(`Invalid fallback status code: ${item}`);
-      }
-      return code;
-    });
-
-  if (!codes.length) {
-    throw new Error("At least one fallback status code is required.");
-  }
-
-  const uniqueCodes = [...new Set(codes)];
-  if (uniqueCodes.length !== codes.length) {
-    throw new Error("Fallback status codes must be unique.");
-  }
-
-  return uniqueCodes;
-}
-
-function toConfig(draft) {
-  return {
-    app: {
-      closeBehavior: normalizeCloseBehavior(draft.app?.closeBehavior),
-    },
-    router: {
-      host: draft.router.host.trim() || "127.0.0.1",
-      port: numberValue(draft.router.port, 4000),
-      apiKey: draft.router.apiKey,
-      requestTimeoutMs: numberValue(draft.router.requestTimeoutMs, 30000),
-      maxBodyBytes: numberValue(draft.router.maxBodyMb, 50) * 1048576,
-      fallbackStatusCodes: parseStatusCodes(draft.router.fallbackStatusCodesText),
-      logFile: draft.router.logFile.trim() || "logs/router.log",
-    },
-    model: {
-      id: draft.model.id.trim() || "model-id",
-      name: draft.model.name.trim() || "Model Name",
-      ownedBy: draft.model.ownedBy.trim() || "local-router",
-      maxInputTokens: numberValue(draft.model.maxInputTokens, 200000),
-      maxOutputTokens: numberValue(draft.model.maxOutputTokens, 64000),
-    },
-    vendors: draft.vendors.map((vendor) => {
-      const normalized = {
-        ...vendor,
-        name: String(vendor.name || "").trim(),
-        baseUrl: String(vendor.baseUrl || "").trim(),
-        models: normalizeVendorModelsForDraft(vendor, draft.model.id).map((model) => ({
-          id: String(model.id || "").trim(),
-          enabled: model.enabled !== false,
-        })),
-        authentication: vendor.authentication === "api-key" ? "api-key" : "none",
-        enabled: vendor.enabled !== false,
-      };
-      delete normalized.timeoutMs;
-      delete normalized.apiKeyEnv;
-      delete normalized.headers;
-      delete normalized.model;
-      if (normalized.authentication === "none") {
-        delete normalized.apiKey;
-      }
-      return normalized;
-    }),
-  };
 }
 
 function numberValue(value, fallback) {
@@ -462,6 +300,7 @@ export default function App() {
   const [appName, setAppName] = useState(defaultAppName);
   const [isDevelopmentRuntime, setIsDevelopmentRuntime] = useState(false);
   const [updateState, setUpdateState] = useState(defaultUpdateState);
+  const [configRevision, setConfigRevision] = useState("");
   const vendorModelsRequestRef = useRef(0);
   const vendorModelsSourceKeyRef = useRef("");
 
@@ -532,6 +371,7 @@ export default function App() {
       setAppName(state.appName || defaultAppName);
       setIsDevelopmentRuntime(Boolean(state.isDevelopmentRuntime));
       const loadedDraft = toDraft(state.config);
+      setConfigRevision(state.revision || "");
       setDraft(loadedDraft);
       setPersistedDraft(loadedDraft);
       setRestartRequired(false);
@@ -642,7 +482,7 @@ export default function App() {
       const result = await getDesktopApi().readLogs({ limit: 80, before: logs.nextBefore });
       setLogs((current) => ({
         path: result.path || current.path,
-        lines: [...current.lines, ...result.lines],
+        lines: [...result.lines, ...current.lines],
         nextBefore: result.nextBefore,
         hasMore: result.hasMore,
       }));
@@ -650,8 +490,12 @@ export default function App() {
   }
 
   async function writeConfig(nextDraft) {
-    const result = await getDesktopApi().saveConfig(toConfig(nextDraft));
+    const result = await getDesktopApi().saveConfig({
+      config: toConfig(nextDraft),
+      revision: configRevision,
+    });
     const savedDraft = toDraft(result.config);
+    setConfigRevision(result.revision || "");
     setPersistedDraft(savedDraft);
     if (routerActive) {
       setRestartRequired(true);
@@ -742,17 +586,21 @@ export default function App() {
     }));
   }
 
-  async function setCloseBehavior(closeBehavior) {
-    if (busy === "saveApp" || closeBehavior === persistedDraft.app.closeBehavior) {
+  async function setAppSetting(field, value) {
+    if (busy === "saveApp" || value === persistedDraft.app[field]) {
       return;
     }
 
     await run("saveApp", async () => {
-      const result = await getDesktopApi().saveConfig(toConfig({
-        ...persistedDraft,
-        app: { ...persistedDraft.app, closeBehavior },
-      }));
+      const result = await getDesktopApi().saveConfig({
+        config: toConfig({
+          ...persistedDraft,
+          app: { ...persistedDraft.app, [field]: value },
+        }),
+        revision: configRevision,
+      });
       const savedDraft = toDraft(result.config);
+      setConfigRevision(result.revision || "");
       setPersistedDraft(savedDraft);
       setDraft((current) => ({ ...current, app: savedDraft.app }));
     });
@@ -1118,7 +966,7 @@ export default function App() {
               />
               <AppSettingsPage
                 app={draft.app}
-                setCloseBehavior={setCloseBehavior}
+                setAppSetting={setAppSetting}
                 busy={busy}
               />
               <VendorsPage
@@ -1358,7 +1206,7 @@ function RouterPage({ draft, updateRouter, showRouterKey, setShowRouterKey, copy
   );
 }
 
-function AppSettingsPage({ app, setCloseBehavior, busy }) {
+function AppSettingsPage({ app, setAppSetting, busy }) {
   return (
     <div className="panel-grid single">
       <div className="panel wide">
@@ -1372,7 +1220,7 @@ function AppSettingsPage({ app, setCloseBehavior, busy }) {
                   type="button"
                   key={option.value}
                   className={app.closeBehavior === option.value ? "active" : ""}
-                  onClick={() => setCloseBehavior(option.value)}
+                  onClick={() => setAppSetting("closeBehavior", option.value)}
                   disabled={busy === "saveApp"}
                 >
                   {option.label}
@@ -1380,6 +1228,16 @@ function AppSettingsPage({ app, setCloseBehavior, busy }) {
               ))}
             </div>
           </div>
+          <label className="toggle-row wide" title="Start Local Model Router after signing in to Windows">
+            <input
+              className="checkbox"
+              type="checkbox"
+              checked={app.startAtLogin === true}
+              onChange={(event) => setAppSetting("startAtLogin", event.target.checked)}
+              disabled={busy === "saveApp"}
+            />
+            <span>Start at login</span>
+          </label>
         </div>
       </div>
     </div>

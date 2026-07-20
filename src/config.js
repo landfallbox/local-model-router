@@ -3,6 +3,7 @@ import { z } from "zod";
 export const DEFAULT_CONFIG = {
   app: {
     closeBehavior: "tray",
+    startAtLogin: false,
   },
   router: {
     host: "127.0.0.1",
@@ -103,6 +104,7 @@ export const vendorSchema = z.object({
 export const configSchema = z.object({
   app: z.object({
     closeBehavior: closeBehaviorSchema.default(DEFAULT_CONFIG.app.closeBehavior),
+    startAtLogin: z.boolean().default(DEFAULT_CONFIG.app.startAtLogin),
   }).default(DEFAULT_CONFIG.app),
   router: z.object({
     host: z.string().trim().min(1),
@@ -159,6 +161,7 @@ export function normalizeConfig(config) {
   return {
     app: {
       closeBehavior: normalizeCloseBehavior(app.closeBehavior),
+      startAtLogin: app.startAtLogin === true,
     },
     router: {
       host: String(router.host || DEFAULT_CONFIG.router.host).trim() || DEFAULT_CONFIG.router.host,
