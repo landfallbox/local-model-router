@@ -21,6 +21,7 @@ Use `npm run gui` for the desktop development app.
 - Do not commit `config.json`, logs, build output, release artifacts, API keys, or local vendor endpoints.
 - Add or update tests when behavior changes.
 - Run `npm run check`, `npm test`, and `npm run gui:build` before opening a PR.
+- For tagged releases, verify the GitHub Release includes the Windows installer `.exe`, `.exe.blockmap`, and `latest.yml` so packaged apps can detect updates.
 
 ## Configuration And Secrets
 

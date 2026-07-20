@@ -121,6 +121,28 @@ Build the Windows NSIS installer:
 npm run dist:windows
 ```
 
+Packaged Windows builds check GitHub Releases for updates after startup. The app only checks for a newer version automatically; users click the update button before the installer is downloaded.
+
+For auto-update to work, each GitHub Release must include the installer `.exe`, its `.exe.blockmap`, and `latest.yml` from the `release` directory.
+
+Preview the complete update UI in development mode without contacting GitHub or installing anything:
+
+```powershell
+npm run gui:update
+```
+
+This simulates an available `0.3.0-dev-preview` release. Use the update button below the app identity in the sidebar to preview download progress, then restart-to-update state. The mock flow does not close the app or change the installed version.
+
+Preview a download that fails after reaching partial progress:
+
+```powershell
+npm run gui:update-error
+```
+
+Click `Update available`; the progress bar will stop and change to `Update failed · Retry`.
+
+Set `LOCAL_MODEL_ROUTER_MOCK_UPDATE` before `npm run gui` to preview a specific initial result: `available`, `downloaded`, `not-available`, or `error`. Override the preview version with `LOCAL_MODEL_ROUTER_MOCK_UPDATE_VERSION`.
+
 Run checks:
 
 ```powershell

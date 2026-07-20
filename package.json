@@ -1,7 +1,7 @@
 {
   "name": "local-model-router",
   "productName": "Local Model Router",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Local OpenAI-compatible model router with vendor failover.",
   "author": "tang",
   "license": "MIT",
@@ -23,11 +23,13 @@
   "main": "gui/electron/main.js",
   "scripts": {
     "start": "node src/server.js",
-    "check": "node --check src/config.js && node --check src/server.js && node --check src/healthcheck.js && node --check gui/electron/main.js && node --check gui/electron/preload.cjs && node --check scripts/start-electron-dev.mjs",
+    "check": "node --check src/config.js && node --check src/server.js && node --check src/healthcheck.js && node --check gui/electron/main.js && node --check gui/electron/updater.js && node --check gui/electron/preload.cjs && node --check scripts/start-electron-dev.mjs",
     "test": "node test/fallback-smoke.test.js",
     "health": "node src/healthcheck.js",
     "gui": "node scripts/start-electron-dev.mjs",
     "gui:dev": "node scripts/start-electron-dev.mjs",
+    "gui:update": "node scripts/start-electron-dev.mjs --mock-update",
+    "gui:update-error": "node scripts/start-electron-dev.mjs --mock-update-error",
     "gui:build": "vite build --config gui/vite.config.js --configLoader runner",
     "gui:preview": "npm run gui:build && electron .",
     "icons:build": "node scripts/build-icons.mjs",
@@ -35,6 +37,7 @@
     "dist:windows:dir": "npm run icons:build && npm run gui:build && node scripts/prepare-electron-builder.mjs && electron-builder --win dir --x64"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -56,6 +59,13 @@
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "landfallbox",
+        "repo": "local-model-router"
+      }
+    ],
     "electronDist": "node_modules/electron/dist",
     "files": [
       "package.json",
@@ -93,7 +103,7 @@
           ]
         }
       ],
-      "artifactName": "${productName} Setup ${version}.${ext}"
+      "artifactName": "${name}-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,

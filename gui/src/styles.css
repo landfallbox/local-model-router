@@ -196,11 +196,16 @@ input[readonly] {
 }
 
 .brand {
-  display: flex;
-  align-items: center;
+  display: grid;
   gap: 12px;
   padding: 4px 6px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.brand-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .brand-mark {
@@ -252,10 +257,15 @@ input[readonly] {
   color: #ffffff;
 }
 
-.sidebar-control {
+.sidebar-footer {
   display: grid;
   gap: 10px;
   margin-top: auto;
+}
+
+.sidebar-control {
+  display: grid;
+  gap: 10px;
   padding: 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
@@ -279,6 +289,86 @@ input[readonly] {
   color: #fbbf24;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.sidebar-update-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dbe4f0;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.sidebar-update-button:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.sidebar-update-button.ready {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.sidebar-update-button.ready:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
+.sidebar-update-button.failed {
+  border-color: rgba(248, 113, 113, 0.38);
+  background: rgba(185, 28, 28, 0.12);
+  color: #fca5a5;
+}
+
+.sidebar-update-button.failed:hover {
+  border-color: rgba(248, 113, 113, 0.58);
+  background: rgba(185, 28, 28, 0.2);
+  color: #fecaca;
+}
+
+.sidebar-update-button:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.sidebar-update-progress {
+  display: grid;
+  gap: 7px;
+  padding: 9px 10px;
+  color: #dbe4f0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sidebar-update-progress-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sidebar-update-progress-track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.sidebar-update-progress-track div {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 120ms ease;
 }
 
 .dock-actions {

@@ -79,8 +79,8 @@ jobs:
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $assets = @(
-            "release/Local Model Router Setup $version.exe",
-            "release/Local Model Router Setup $version.exe.blockmap",
+            "release/local-model-router-Setup-$version.exe",
+            "release/local-model-router-Setup-$version.exe.blockmap",
             "release/latest.yml"
           )
           foreach ($asset in $assets) {
@@ -92,9 +92,9 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3.0.2
         with:
-          generate_release_notes: true
+          body: Added in-app update support.
           fail_on_unmatched_files: true
           files: |
-            release/Local Model Router Setup *.exe
-            release/Local Model Router Setup *.exe.blockmap
+            release/local-model-router-Setup-*.exe
+            release/local-model-router-Setup-*.exe.blockmap
             release/latest.yml

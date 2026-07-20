@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld("localModelRouter", {
   readLogs: (options) => ipcRenderer.invoke("logs:read", options),
   openConfig: () => ipcRenderer.invoke("file:openConfig"),
   openLog: () => ipcRenderer.invoke("file:openLog"),
+  getUpdateState: () => ipcRenderer.invoke("update:getState"),
+  checkForUpdates: (options) => ipcRenderer.invoke("update:check", options),
+  downloadUpdate: () => ipcRenderer.invoke("update:download"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
+  openReleasePage: () => ipcRenderer.invoke("update:openReleasePage"),
   writeClipboard: (text) => ipcRenderer.invoke("clipboard:writeText", text),
   onOpenSettings: (callback) => {
     const listener = () => callback();
@@ -26,5 +31,10 @@ contextBridge.exposeInMainWorld("localModelRouter", {
     const listener = () => callback();
     ipcRenderer.on("app:confirmClose", listener);
     return () => ipcRenderer.removeListener("app:confirmClose", listener);
+  },
+  onUpdateState: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("update:state", listener);
+    return () => ipcRenderer.removeListener("update:state", listener);
   },
 });

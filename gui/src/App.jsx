@@ -59,6 +59,18 @@ const defaultDraft = {
 
 const defaultAppName = "Local Model Router";
 
+const defaultUpdateState = {
+  status: "unsupported",
+  supported: false,
+  currentVersion: "",
+  availableVersion: "",
+  releaseName: "",
+  releaseNotes: "",
+  progress: null,
+  error: "",
+  lastCheckedAt: "",
+};
+
 const navItems = [
   { id: "settings", label: "Settings", icon: Settings2 },
   { id: "logs", label: "Logs", icon: Terminal },
@@ -449,6 +461,7 @@ export default function App() {
   const [restartRequired, setRestartRequired] = useState(false);
   const [appName, setAppName] = useState(defaultAppName);
   const [isDevelopmentRuntime, setIsDevelopmentRuntime] = useState(false);
+  const [updateState, setUpdateState] = useState(defaultUpdateState);
   const vendorModelsRequestRef = useRef(0);
   const vendorModelsSourceKeyRef = useRef("");
 
@@ -459,6 +472,23 @@ export default function App() {
 
   useEffect(() => {
     void loadState();
+  }, []);
+
+  useEffect(() => {
+    const api = getDesktopApi();
+    void api.getUpdateState?.().then((state) => {
+      if (state) {
+        setUpdateState(state);
+      }
+    }).catch(() => null);
+
+    const unsubscribe = api.onUpdateState?.((state) => {
+      if (state) {
+        setUpdateState(state);
+      }
+    });
+
+    return typeof unsubscribe === "function" ? unsubscribe : undefined;
   }, []);
 
   useEffect(() => {
@@ -963,17 +993,42 @@ export default function App() {
     await getDesktopApi().quitAndStop();
   }
 
+  async function downloadAppUpdate() {
+    await run("updateDownload", async () => {
+      const state = await getDesktopApi().downloadUpdate();
+      setUpdateState(state);
+      setToast(updateToastForState(state, "Update download started."));
+    });
+  }
+
+  async function installAppUpdate() {
+    await run("updateInstall", async () => {
+      const state = await getDesktopApi().installUpdate();
+      setUpdateState(state);
+      setToast(updateToastForState(state, "Installing update."));
+    });
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">
-            <ShieldCheck size={20} />
+          <div className="brand-identity">
+            <div className="brand-mark">
+              <ShieldCheck size={20} />
+            </div>
+            <div>
+              <div className="brand-title">{appName}</div>
+              <div className="brand-subtitle">{appName === defaultAppName ? "Desktop Control" : "Development Control"}</div>
+            </div>
           </div>
-          <div>
-            <div className="brand-title">{appName}</div>
-            <div className="brand-subtitle">{appName === defaultAppName ? "Desktop Control" : "Development Control"}</div>
-          </div>
+
+          <SidebarUpdateButton
+            updateState={updateState}
+            downloadUpdate={downloadAppUpdate}
+            installUpdate={installAppUpdate}
+            busy={busy}
+          />
         </div>
 
         <nav className="nav-list">
@@ -997,28 +1052,30 @@ export default function App() {
           })}
         </nav>
 
-        <div className="sidebar-control">
-          <div className="sidebar-status">
-            <div className={`status-dot ${status.tone}`} />
-            <span>{status.label}</span>
-          </div>
-          {restartRequired && <div className="sidebar-hint">Restart Router to apply saved changes.</div>}
-          <div className="dock-actions">
-            <DockButton
-              icon={routerActive ? Square : Play}
-              label={routerActive ? "Stop router" : "Start router"}
-              busy={busy === "start" || busy === "stop"}
-              onClick={toggleRouter}
-              variant="primary"
-            />
-            {restartRequired && routerActive && (
+        <div className="sidebar-footer">
+          <div className="sidebar-control">
+            <div className="sidebar-status">
+              <div className={`status-dot ${status.tone}`} />
+              <span>{status.label}</span>
+            </div>
+            {restartRequired && <div className="sidebar-hint">Restart Router to apply saved changes.</div>}
+            <div className="dock-actions">
               <DockButton
-                icon={RotateCcw}
-                label="Restart router"
-                busy={busy === "restart"}
-                onClick={restartRouter}
+                icon={routerActive ? Square : Play}
+                label={routerActive ? "Stop router" : "Start router"}
+                busy={busy === "start" || busy === "stop"}
+                onClick={toggleRouter}
+                variant="primary"
               />
-            )}
+              {restartRequired && routerActive && (
+                <DockButton
+                  icon={RotateCcw}
+                  label="Restart router"
+                  busy={busy === "restart"}
+                  onClick={restartRouter}
+                />
+              )}
+            </div>
           </div>
         </div>
       </aside>
@@ -1327,6 +1384,97 @@ function AppSettingsPage({ app, setCloseBehavior, busy }) {
       </div>
     </div>
   );
+}
+
+function SidebarUpdateButton({ updateState, downloadUpdate, installUpdate, busy }) {
+  const isDownloading = busy === "updateDownload" || updateState.status === "downloading";
+  const isInstalling = busy === "updateInstall";
+  const percent = Math.round(updateState.progress?.percent || 0);
+
+  const downloadFailed = updateState.status === "error" && Boolean(updateState.availableVersion);
+
+  if (!["available", "downloading", "downloaded"].includes(updateState.status) && !downloadFailed) {
+    return null;
+  }
+
+  if (updateState.status === "downloaded") {
+    return (
+      <button
+        type="button"
+        className="sidebar-update-button ready"
+        onClick={installUpdate}
+        disabled={isInstalling}
+        title={`Install version ${updateState.availableVersion}`}
+      >
+        {isInstalling ? <Loader2 className="spin" size={17} /> : <RotateCcw size={17} />}
+        <span>Restart to update</span>
+      </button>
+    );
+  }
+
+  if (isDownloading) {
+    return (
+      <div className="sidebar-update-progress" aria-label={`Downloading update ${percent}%`}>
+        <div className="sidebar-update-progress-label">
+          <span>Downloading</span>
+          <span>{percent}%</span>
+        </div>
+        <div className="sidebar-update-progress-track">
+          <div style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (downloadFailed) {
+    return (
+      <button
+        type="button"
+        className="sidebar-update-button failed"
+        onClick={downloadUpdate}
+        title={updateState.error || "Update download failed"}
+      >
+        <span>Update failed · Retry</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="sidebar-update-button"
+      onClick={downloadUpdate}
+      disabled={isInstalling}
+      title={`Download version ${updateState.availableVersion}`}
+    >
+      <span>Update available</span>
+    </button>
+  );
+}
+
+function updateToastForState(updateState, fallback) {
+  if (!updateState) {
+    return fallback;
+  }
+  if (!updateState.supported) {
+    return updateState.error || "Updates are available only in packaged Windows builds.";
+  }
+  if (updateState.status === "available") {
+    return `Version ${updateState.availableVersion} is available.`;
+  }
+  if (updateState.status === "downloaded") {
+    return "Update downloaded. Restart to update.";
+  }
+  if (updateState.status === "installed") {
+    return "Mock update install completed.";
+  }
+  if (updateState.status === "not-available") {
+    return "You are up to date.";
+  }
+  if (updateState.status === "error") {
+    return updateState.error || "Update failed.";
+  }
+  return fallback;
 }
 
 function VendorsPage({

@@ -7,6 +7,15 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_CONFIG, normalizeConfig, validateConfig } from "../../src/config.js";
+import {
+  checkForUpdates,
+  downloadUpdate,
+  getUpdateState,
+  initializeUpdater,
+  installUpdate,
+  onUpdateState,
+  openReleasePage,
+} from "./updater.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TRAY_REFRESH_INTERVAL_MS = 15000;
@@ -624,6 +633,7 @@ async function getAppState() {
   return {
     ...loaded,
     health: await getHealth(loaded.config),
+    appVersion: app.getVersion(),
   };
 }
 
@@ -694,6 +704,8 @@ function updateTrayMenu() {
     return;
   }
 
+  const updateState = getUpdateState();
+
   const items = [
     { label: `Current status: ${trayStatus.label}`, enabled: false },
     { type: "separator" },
@@ -710,6 +722,18 @@ function updateTrayMenu() {
     );
   } else if (!trayStatus.isRouterActive) {
     items.push({ label: "Start Router", click: () => void startRouterFromTray() });
+  }
+
+  if (["available", "downloading", "downloaded"].includes(updateState.status)) {
+    items.push({ type: "separator" });
+    if (updateState.status === "available") {
+      items.push({ label: `Download update ${updateState.availableVersion}`, click: () => void downloadUpdateFromTray() });
+    } else if (updateState.status === "downloading") {
+      const percent = Number(updateState.progress?.percent || 0).toFixed(0);
+      items.push({ label: `Downloading update ${percent}%`, enabled: false });
+    } else if (updateState.status === "downloaded") {
+      items.push({ label: `Install update ${updateState.availableVersion}`, click: () => void installUpdateFromTray() });
+    }
   }
 
   items.push(
@@ -806,6 +830,49 @@ async function restartRouterFromTray() {
     trayBusyAction = "";
     updateTrayMenu();
   }
+}
+
+async function downloadUpdateFromTray() {
+  trayBusyAction = "Downloading update...";
+  updateTrayMenu();
+
+  try {
+    await downloadUpdate();
+  } catch {} finally {
+    trayBusyAction = "";
+    updateTrayMenu();
+  }
+}
+
+async function installUpdateFromTray() {
+  try {
+    await installDownloadedUpdate();
+  } catch (error) {
+    showNotification("Local Model Router update failed", error.message || String(error));
+  }
+}
+
+async function installDownloadedUpdate() {
+  const updateState = getUpdateState();
+  if (updateState.mock || updateState.status !== "downloaded") {
+    return installUpdate();
+  }
+
+  isQuitting = true;
+  trayBusyAction = "Installing update...";
+  updateTrayMenu();
+
+  try {
+    await stopRouter();
+  } catch (error) {
+    showNotification("Local Model Router", `Failed to stop Router before update: ${error.message || String(error)}`);
+  }
+
+  return installUpdate();
+}
+
+function handleUpdateStateChanged() {
+  updateTrayMenu();
 }
 
 async function startRouterForBackgroundStartup() {
@@ -1037,6 +1104,11 @@ ipcMain.handle("router:health", (_event, options) => getHealth(null, options));
 ipcMain.handle("logs:read", readLogs);
 ipcMain.handle("file:openConfig", openConfigFile);
 ipcMain.handle("file:openLog", openLogFile);
+ipcMain.handle("update:getState", getUpdateState);
+ipcMain.handle("update:check", (_event, options) => checkForUpdates(options));
+ipcMain.handle("update:download", downloadUpdate);
+ipcMain.handle("update:install", installDownloadedUpdate);
+ipcMain.handle("update:openReleasePage", openReleasePage);
 ipcMain.handle("clipboard:writeText", (_event, text) => {
   clipboard.writeText(String(text || ""));
   return { ok: true };
@@ -1058,8 +1130,11 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     enablePackagedLoginStartup();
+    initializeUpdater();
+    onUpdateState(handleUpdateStateChanged);
     createTray();
     await refreshTrayStatus().catch(() => null);
+    void checkForUpdates().catch(() => null);
 
     if (hasHiddenStartArg()) {
       void startRouterForBackgroundStartup();

@@ -17,11 +17,16 @@ const rendererUrl = server.resolvedUrls?.local?.[0] || "http://127.0.0.1:5173/";
 const projectRoot = resolve(".");
 const projectHash = createHash("sha256").update(projectRoot).digest("hex").slice(0, 12);
 const devDataRoot = process.env.LOCAL_MODEL_ROUTER_DEV_DATA_DIR || join(tmpdir(), "local-model-router-dev", projectHash);
-const devUserDataDir = join(devDataRoot, "electron-user-data");
-const devRouterDataDir = join(devDataRoot, "router-data");
-const devConfigPath = process.env.ROUTER_CONFIG || join(devRouterDataDir, "config.json");
-const forwardedArgs = process.argv.slice(2);
+const requestedArgs = process.argv.slice(2);
+const mockUpdateArg = requestedArgs.includes("--mock-update");
+const mockUpdateErrorArg = requestedArgs.includes("--mock-update-error");
+const forwardedArgs = requestedArgs.filter((arg) => !["--mock-update", "--mock-update-error"].includes(arg));
 const startsHidden = forwardedArgs.some((arg) => ["--hidden", "--background", "--minimized", "--tray"].includes(arg));
+const isMockUpdate = mockUpdateArg || mockUpdateErrorArg;
+const previewSuffix = mockUpdateErrorArg ? "update-error-preview" : mockUpdateArg ? "update-preview" : "";
+const devUserDataDir = join(devDataRoot, previewSuffix ? `electron-user-data-${previewSuffix}` : "electron-user-data");
+const devRouterDataDir = join(devDataRoot, previewSuffix ? `router-data-${previewSuffix}` : "router-data");
+const devConfigPath = process.env.ROUTER_CONFIG || join(devRouterDataDir, "config.json");
 
 mkdirSync(devUserDataDir, { recursive: true });
 mkdirSync(devRouterDataDir, { recursive: true });
@@ -32,8 +37,9 @@ const electron = spawn(electronPath, [projectRoot, ...forwardedArgs], {
     ELECTRON_RENDERER_URL: rendererUrl,
     LOCAL_MODEL_ROUTER_APP_DIR: projectRoot,
     LOCAL_MODEL_ROUTER_DATA_DIR: devRouterDataDir,
-    LOCAL_MODEL_ROUTER_DEFAULT_PORT: process.env.LOCAL_MODEL_ROUTER_DEFAULT_PORT || "4100",
+    LOCAL_MODEL_ROUTER_DEFAULT_PORT: process.env.LOCAL_MODEL_ROUTER_DEFAULT_PORT || (mockUpdateErrorArg ? "4300" : isMockUpdate ? "4200" : "4100"),
     LOCAL_MODEL_ROUTER_DEV_MODE: "1",
+    LOCAL_MODEL_ROUTER_MOCK_UPDATE: mockUpdateErrorArg ? "download-error" : mockUpdateArg ? "available" : process.env.LOCAL_MODEL_ROUTER_MOCK_UPDATE,
     LOCAL_MODEL_ROUTER_START_HIDDEN: startsHidden ? "1" : process.env.LOCAL_MODEL_ROUTER_START_HIDDEN,
     LOCAL_MODEL_ROUTER_USER_DATA_DIR: devUserDataDir,
     ROUTER_CONFIG: devConfigPath,
