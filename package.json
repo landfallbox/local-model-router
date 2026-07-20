@@ -23,8 +23,10 @@
   "main": "gui/electron/main.js",
   "scripts": {
     "start": "node src/server.js",
-    "check": "node --check src/config.js && node --check src/server.js && node --check src/healthcheck.js && node --check gui/electron/main.js && node --check gui/electron/updater.js && node --check gui/electron/preload.cjs && node --check scripts/start-electron-dev.mjs",
-    "test": "node test/fallback-smoke.test.js",
+    "check": "node --check src/config.js && node --check src/runtime-config.js && node --check src/logger.js && node --check src/router-urls.js && node --check src/server.js && node --check src/healthcheck.js && node --check gui/electron/config-store.js && node --check gui/electron/log-store.js && node --check gui/electron/main.js && node --check gui/electron/updater.js && node --check gui/electron/preload.cjs && node --check gui/src/config-draft.js && node --check scripts/start-electron-dev.mjs && node --check test/electron-lifecycle.test.js",
+    "test": "node test/config-and-urls.test.js && node test/config-draft.test.js && node test/log-store.test.js && node test/fallback-smoke.test.js",
+    "test:electron": "node test/electron-lifecycle.test.js",
+    "test:ci": "npm test && npm run test:electron",
     "health": "node src/healthcheck.js",
     "gui": "node scripts/start-electron-dev.mjs",
     "gui:dev": "node scripts/start-electron-dev.mjs",
@@ -47,6 +49,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.2.1",
     "electron-builder": "^26.15.3",
+    "playwright": "^1.61.1",
     "sharp": "0.33.5",
     "vite": "^6.0.3"
   },
