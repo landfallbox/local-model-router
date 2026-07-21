@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, Notification, shell, Tray } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, nativeImage, nativeTheme, shell } from "electron";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { closeSync, existsSync, openSync } from "node:fs";
@@ -10,6 +10,7 @@ import { DEFAULT_CONFIG, normalizeConfig } from "../../src/config.js";
 import { getChatCompletionsUrl, getRouterBaseUrl } from "../../src/router-urls.js";
 import { readConfigStore, writeConfigStore } from "./config-store.js";
 import { ensureLogFile, readLogPage, resolveLogPath } from "./log-store.js";
+import { createTrayController, healthDetail } from "./tray-controller.js";
 import {
   checkForUpdates,
   downloadUpdate,
@@ -21,19 +22,14 @@ import {
 } from "./updater.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TRAY_REFRESH_INTERVAL_MS = 15000;
 const HIDDEN_START_ARGS = new Set(["--hidden", "--background", "--minimized", "--tray"]);
 const isDevelopmentRuntime = process.env.LOCAL_MODEL_ROUTER_DEV_MODE === "1";
 const APP_DISPLAY_NAME = isDevelopmentRuntime ? "Local Model Router Dev" : "Local Model Router";
 const APP_USER_MODEL_ID = isDevelopmentRuntime ? "local.local-model-router.dev" : "local.local-model-router";
 
 let mainWindow = null;
-let tray = null;
-let trayRefreshTimer = null;
-let trayBusyAction = "";
 let isQuitting = false;
 let closePromptActive = false;
-let trayStatus = { label: "Checking", detail: "", isRouterActive: false };
 let routerLifecycleQueue = Promise.resolve();
 let managedRouterChild = null;
 const windowsToShowOnReady = new WeakSet();
@@ -335,7 +331,7 @@ async function startRouterInternal() {
 
   const existingHealth = await getHealth(config, { includeProcessCount: true });
   if (existingHealth.ok || Number(existingHealth.processCount || 0) > 0) {
-    await refreshTrayStatus(existingHealth);
+    await trayController.refreshStatus(existingHealth);
     return { started: false, via: "existing", health: existingHealth };
   }
 
@@ -369,7 +365,7 @@ async function startRouterInternal() {
     const message = `Router process could not start: ${error.message || String(error)}`;
     const failedHealth = { ...health, ok: false, error: message, processLogPath: processLog.path };
     await recordRouterStartFailure(config, message, processLog.path);
-    await refreshTrayStatus(failedHealth);
+    await trayController.refreshStatus(failedHealth);
     return { started: false, via: "process", health: failedHealth, error: message };
   }
 
@@ -389,7 +385,7 @@ async function startRouterInternal() {
     const message = `Router failed to start: ${detail}`;
     const failedHealth = { ...health, error: message, processLogPath: processLog.path };
     await recordRouterStartFailure(config, message, processLog.path);
-    await refreshTrayStatus(failedHealth);
+    await trayController.refreshStatus(failedHealth);
     return {
       started: false,
       via: "process",
@@ -398,7 +394,7 @@ async function startRouterInternal() {
       error: message,
     };
   }
-  await refreshTrayStatus(health);
+  await trayController.refreshStatus(health);
   return { started: true, via: "process", pid: child.pid, health };
 }
 
@@ -499,7 +495,7 @@ async function stopRouterInternal() {
     await removeRouterPid(paths);
 
     const health = await getHealth();
-    await refreshTrayStatus(health);
+    await trayController.refreshStatus(health);
     return { stopped: true, health };
   }
 
@@ -523,7 +519,7 @@ async function stopRouterInternal() {
   await removeRouterPid(paths);
 
   const health = await getHealth();
-  await refreshTrayStatus(health);
+  await trayController.refreshStatus(health);
   return { stopped: true, health };
 }
 
@@ -715,217 +711,6 @@ function hasHiddenStartArg(args = process.argv) {
   return args.some((arg) => HIDDEN_START_ARGS.has(String(arg).toLowerCase())) || process.env.LOCAL_MODEL_ROUTER_START_HIDDEN === "1";
 }
 
-function statusFromHealth(health) {
-  if (!health) {
-    return { label: "Checking", detail: "", isRouterActive: false };
-  }
-
-  if (health.ok) {
-    return { label: "Running", detail: "", isRouterActive: true };
-  }
-
-  if (Number(health.processCount || 0) > 0) {
-    return { label: "Process found", detail: health.error || "Health check failed.", isRouterActive: true };
-  }
-
-  return { label: "Stopped", detail: health.error || "", isRouterActive: false };
-}
-
-function healthDetail(health) {
-  if (!health) {
-    return "No health result is available.";
-  }
-
-  return health.error || health.text || health.body?.model || health.url || "Router did not report healthy.";
-}
-
-function createTrayIcon() {
-  const size = 16;
-  const buffer = Buffer.alloc(size * size * 4);
-
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const offset = (y * size + x) * 4;
-      const distance = Math.hypot(x - 7.5, y - 7.5);
-      if (distance > 7.5) {
-        continue;
-      }
-
-      const isRouteLine = (x >= 4 && x <= 11 && y >= 4 && y <= 5) || (x >= 10 && x <= 11 && y >= 4 && y <= 11);
-      buffer[offset] = isRouteLine ? 244 : 34;
-      buffer[offset + 1] = isRouteLine ? 247 : 197;
-      buffer[offset + 2] = isRouteLine ? 251 : 94;
-      buffer[offset + 3] = 255;
-    }
-  }
-
-  return nativeImage.createFromBitmap(buffer, { width: size, height: size, scaleFactor: 1 });
-}
-
-function showNotification(title, body) {
-  if (Notification.isSupported()) {
-    new Notification({ title, body: String(body || "") }).show();
-  }
-}
-
-function getTrayTooltip() {
-  const routerState = trayStatus.isRouterActive ? "Running" : "Stopped";
-  return `local_model_router: ${routerState}${trayStatus.detail ? `\n${trayStatus.detail}` : ""}`;
-}
-
-function updateTrayMenu() {
-  if (!tray) {
-    return;
-  }
-
-  const updateState = getUpdateState();
-
-  const items = [
-    { label: `Current status: ${trayStatus.label}`, enabled: false },
-    { type: "separator" },
-    { label: "Open Settings", click: showSettingsWindow },
-    { label: "Open Logs", click: () => void openLogFile().catch((error) => showNotification("Local Model Router", error.message || String(error))) },
-  ];
-
-  if (trayBusyAction) {
-    items.push({ label: trayBusyAction, enabled: false });
-  } else if (trayStatus.isRouterActive) {
-    items.push(
-      { label: "Stop Router", click: () => void stopRouterFromTray() },
-      { label: "Restart Router", click: () => void restartRouterFromTray() },
-    );
-  } else if (!trayStatus.isRouterActive) {
-    items.push({ label: "Start Router", click: () => void startRouterFromTray() });
-  }
-
-  if (["available", "downloading", "downloaded"].includes(updateState.status)) {
-    items.push({ type: "separator" });
-    if (updateState.status === "available") {
-      items.push({ label: `Download update ${updateState.availableVersion}`, click: () => void downloadUpdateFromTray() });
-    } else if (updateState.status === "downloading") {
-      const percent = Number(updateState.progress?.percent || 0).toFixed(0);
-      items.push({ label: `Downloading update ${percent}%`, enabled: false });
-    } else if (updateState.status === "downloaded") {
-      items.push({ label: `Install update ${updateState.availableVersion}`, click: () => void installUpdateFromTray() });
-    }
-  }
-
-  items.push(
-    { type: "separator" },
-    { label: "Exit", click: () => void quitApplication() },
-  );
-
-  tray.setToolTip(getTrayTooltip());
-  tray.setContextMenu(Menu.buildFromTemplate(items));
-}
-
-function createTray() {
-  if (tray) {
-    return tray;
-  }
-
-  tray = new Tray(createAppIcon() || createTrayIcon());
-  tray.setToolTip(getTrayTooltip());
-  tray.on("double-click", showSettingsWindow);
-  updateTrayMenu();
-
-  trayRefreshTimer = setInterval(() => {
-    void refreshTrayStatus(null, { notifyOnUnexpectedStop: true });
-  }, TRAY_REFRESH_INTERVAL_MS);
-  trayRefreshTimer.unref?.();
-
-  return tray;
-}
-
-function setTrayConfigurationIssue(detail) {
-  trayStatus = { label: "Stopped", detail, isRouterActive: false };
-  updateTrayMenu();
-}
-
-async function refreshTrayStatus(health = null, { notifyOnUnexpectedStop = false } = {}) {
-  if (!tray) {
-    return health;
-  }
-
-  const nextHealth = health || await getHealth();
-  const nextStatus = statusFromHealth(nextHealth);
-  if (notifyOnUnexpectedStop && trayStatus.isRouterActive && !nextStatus.isRouterActive && !isQuitting) {
-    showNotification("Local Model Router stopped", nextStatus.detail || "The router process is no longer running.");
-  }
-
-  trayStatus = nextStatus;
-  updateTrayMenu();
-  return nextHealth;
-}
-
-async function startRouterFromTray() {
-  trayBusyAction = "Starting Router...";
-  updateTrayMenu();
-
-  try {
-    const result = await startRouter();
-    if (!result.health?.ok) {
-      showNotification("Local Model Router startup issue", healthDetail(result.health));
-    }
-  } catch (error) {
-    showNotification("Local Model Router failed to start", error.message || String(error));
-  } finally {
-    trayBusyAction = "";
-    updateTrayMenu();
-  }
-}
-
-async function stopRouterFromTray() {
-  trayBusyAction = "Stopping Router...";
-  updateTrayMenu();
-
-  try {
-    await stopRouter();
-  } catch (error) {
-    showNotification("Local Model Router failed to stop", error.message || String(error));
-  } finally {
-    trayBusyAction = "";
-    updateTrayMenu();
-  }
-}
-
-async function restartRouterFromTray() {
-  trayBusyAction = "Restarting Router...";
-  updateTrayMenu();
-
-  try {
-    const result = await restartRouter();
-    if (!result.health?.ok) {
-      showNotification("Local Model Router restart issue", healthDetail(result.health));
-    }
-  } catch (error) {
-    showNotification("Local Model Router failed to restart", error.message || String(error));
-  } finally {
-    trayBusyAction = "";
-    updateTrayMenu();
-  }
-}
-
-async function downloadUpdateFromTray() {
-  trayBusyAction = "Downloading update...";
-  updateTrayMenu();
-
-  try {
-    await downloadUpdate();
-  } catch {} finally {
-    trayBusyAction = "";
-    updateTrayMenu();
-  }
-}
-
-async function installUpdateFromTray() {
-  try {
-    await installDownloadedUpdate();
-  } catch (error) {
-    showNotification("Local Model Router update failed", error.message || String(error));
-  }
-}
-
 async function installDownloadedUpdate() {
   const updateState = getUpdateState();
   if (updateState.mock || updateState.status !== "downloaded") {
@@ -933,16 +718,14 @@ async function installDownloadedUpdate() {
   }
 
   isQuitting = true;
-  trayBusyAction = "Installing update...";
-  updateTrayMenu();
+  trayController.setBusy("Installing update...");
 
   try {
     await stopRouter();
   } catch (error) {
-    showNotification("Local Model Router", `Failed to stop Router before update: ${error.message || String(error)}`);
+    trayController.showNotification("Local Model Router", `Failed to stop Router before update: ${error.message || String(error)}`);
     isQuitting = false;
-    trayBusyAction = "";
-    updateTrayMenu();
+    trayController.setBusy("");
     throw error;
   }
 
@@ -950,31 +733,30 @@ async function installDownloadedUpdate() {
     return installUpdate();
   } catch (error) {
     isQuitting = false;
-    trayBusyAction = "";
-    updateTrayMenu();
+    trayController.setBusy("");
     throw error;
   }
 }
 
 function handleUpdateStateChanged() {
-  updateTrayMenu();
+  trayController.updateMenu();
 }
 
 async function startRouterForBackgroundStartup() {
   try {
     const { config } = await loadConfig();
     if (!hasUsableVendor(config)) {
-      setTrayConfigurationIssue("No enabled vendors configured.");
+      trayController.setConfigurationIssue("No enabled vendors configured.");
       return;
     }
 
     const result = await startRouter();
     if (!result.health?.ok) {
-      showNotification("Local Model Router startup issue", healthDetail(result.health));
+      trayController.showNotification("Local Model Router startup issue", healthDetail(result.health));
     }
   } catch (error) {
-    await refreshTrayStatus().catch(() => null);
-    showNotification("Local Model Router failed to start", error.message || String(error));
+    await trayController.refreshStatus().catch(() => null);
+    trayController.showNotification("Local Model Router failed to start", error.message || String(error));
   }
 }
 
@@ -1038,7 +820,7 @@ async function handleWindowClose(window) {
       window.hide();
     }
   } catch (error) {
-    showNotification("Local Model Router", `Failed to read close behavior: ${error.message || String(error)}`);
+    trayController.showNotification("Local Model Router", `Failed to read close behavior: ${error.message || String(error)}`);
     requestWindowCloseConfirmation(window);
   }
 }
@@ -1049,18 +831,14 @@ async function quitApplication() {
   }
 
   isQuitting = true;
-  trayBusyAction = "Stopping Router...";
-  updateTrayMenu();
+  trayController.setBusy("Stopping Router...");
 
   try {
     await stopRouter();
   } catch (error) {
-    showNotification("Local Model Router", `Failed to stop Router: ${error.message || String(error)}`);
+    trayController.showNotification("Local Model Router", `Failed to stop Router: ${error.message || String(error)}`);
   } finally {
-    if (trayRefreshTimer) {
-      clearInterval(trayRefreshTimer);
-      trayRefreshTimer = null;
-    }
+    trayController.dispose();
     app.quit();
   }
 }
@@ -1165,6 +943,21 @@ function registerIpcHandler(channel, handler) {
   });
 }
 
+const trayController = createTrayController({
+  createAppIcon,
+  downloadUpdate,
+  getHealth,
+  getUpdateState,
+  installUpdate: installDownloadedUpdate,
+  isQuitting: () => isQuitting,
+  openLogFile,
+  quitApplication,
+  restartRouter,
+  showSettingsWindow,
+  startRouter,
+  stopRouter,
+});
+
 configureRuntimeIdentity();
 app.setAppUserModelId(APP_USER_MODEL_ID);
 
@@ -1232,12 +1025,12 @@ if (!hasSingleInstanceLock) {
       const { config } = await loadConfig();
       applyPackagedLoginStartup(config.app.startAtLogin);
     } catch (error) {
-      showNotification("Local Model Router", `Failed to load startup settings: ${error.message || String(error)}`);
+      trayController.showNotification("Local Model Router", `Failed to load startup settings: ${error.message || String(error)}`);
     }
     initializeUpdater();
     onUpdateState(handleUpdateStateChanged);
-    createTray();
-    await refreshTrayStatus().catch(() => null);
+    trayController.create();
+    await trayController.refreshStatus().catch(() => null);
     void checkForUpdates().catch(() => null);
 
     if (hasHiddenStartArg()) {
@@ -1251,10 +1044,7 @@ if (!hasSingleInstanceLock) {
 
   app.on("before-quit", () => {
     isQuitting = true;
-    if (trayRefreshTimer) {
-      clearInterval(trayRefreshTimer);
-      trayRefreshTimer = null;
-    }
+    trayController.dispose();
   });
 
   app.on("activate", () => {

@@ -23,7 +23,7 @@
   "main": "gui/electron/main.js",
   "scripts": {
     "start": "node src/server.js",
-    "check": "node --check src/config.js && node --check src/runtime-config.js && node --check src/logger.js && node --check src/router-urls.js && node --check src/server.js && node --check src/healthcheck.js && node --check gui/electron/config-store.js && node --check gui/electron/log-store.js && node --check gui/electron/main.js && node --check gui/electron/updater.js && node --check gui/electron/preload.cjs && node --check gui/src/config-draft.js && node --check scripts/start-electron-dev.mjs && node --check test/electron-lifecycle.test.js",
+    "check": "node --check src/config.js && node --check src/runtime-config.js && node --check src/logger.js && node --check src/router-urls.js && node --check src/server.js && node --check src/healthcheck.js && node --check gui/electron/config-store.js && node --check gui/electron/log-store.js && node --check gui/electron/main.js && node --check gui/electron/tray-controller.js && node --check gui/electron/updater.js && node --check gui/electron/preload.cjs && node --check gui/src/app-controllers.js && node --check gui/src/app-model.js && node --check gui/src/config-draft.js && node --check gui/src/desktop-api.js && node --check scripts/start-electron-dev.mjs && node --check test/electron-lifecycle.test.js",
     "test": "node test/config-and-urls.test.js && node test/config-draft.test.js && node test/log-store.test.js && node test/fallback-smoke.test.js",
     "test:electron": "node test/electron-lifecycle.test.js",
     "test:ci": "npm test && npm run test:electron",
