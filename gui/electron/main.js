@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_CONFIG, normalizeConfig } from "../../src/config.js";
 import { getChatCompletionsUrl, getRouterBaseUrl } from "../../src/router-urls.js";
 import { readConfigStore, writeConfigStore } from "./config-store.js";
+import { parseIpcRequest, parseIpcResponse } from "./ipc-contracts.js";
 import { ensureLogFile, readLogPage, resolveLogPath } from "./log-store.js";
 import { createTrayController, healthDetail } from "./tray-controller.js";
 import {
@@ -325,7 +326,7 @@ async function startRouterInternal() {
 
   if (!hasUsableVendor(config)) {
     const message = "No enabled vendor is configured. Add or enable a vendor before starting Router.";
-    setTrayConfigurationIssue(message);
+    trayController.setConfigurationIssue(message);
     throw new Error(message);
   }
 
@@ -935,11 +936,13 @@ function applyPackagedLoginStartup(enabled) {
 }
 
 function registerIpcHandler(channel, handler) {
-  ipcMain.handle(channel, (event, ...args) => {
+  ipcMain.handle(channel, async (event, ...args) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
       throw new Error(`Rejected IPC request from an untrusted sender: ${channel}`);
     }
-    return handler(event, ...args);
+    const parsedArgs = parseIpcRequest(channel, args);
+    const response = await handler(event, ...parsedArgs);
+    return parseIpcResponse(channel, response);
   });
 }
 

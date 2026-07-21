@@ -1,5 +1,6 @@
 import electron from "electron";
 import electronUpdater from "electron-updater";
+import { updateStateSchema } from "./ipc-contracts.js";
 
 const { app, BrowserWindow, shell } = electron;
 const RELEASES_URL = "https://github.com/landfallbox/local-model-router/releases/latest";
@@ -84,16 +85,17 @@ function update(nextState) {
 }
 
 function broadcastUpdateState() {
+  const validatedState = updateStateSchema.parse(updateState);
   if (typeof BrowserWindow?.getAllWindows === "function") {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-        window.webContents.send("update:state", updateState);
+        window.webContents.send("update:state", validatedState);
       }
     }
   }
 
   for (const listener of stateListeners) {
-    listener(updateState);
+    listener(validatedState);
   }
 }
 
