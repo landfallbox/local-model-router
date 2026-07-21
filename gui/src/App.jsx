@@ -408,9 +408,6 @@ export default function App() {
 
   function openVendorEditor(index) {
     const vendor = cloneVendor(draft.vendors[index]);
-    if (validateVendor(vendor).hasErrors) {
-      vendor.enabled = false;
-    }
     setVendorEditorIndex(index);
     setVendorEditorDraft(vendor);
     setVendorEditorOriginal(cloneVendor(vendor));
@@ -535,7 +532,8 @@ export default function App() {
       const savedVendor = cloneVendor(vendorEditorDraft);
       const validation = validateVendor(savedVendor);
       if (validation.hasErrors) {
-        savedVendor.enabled = false;
+        setToast("Fix the red Vendor errors before saving.");
+        return;
       }
       const savedIndex = vendorEditorIsNew ? persistedDraft.vendors.length : vendorEditorIndex;
       const nextDraft = {
@@ -552,7 +550,7 @@ export default function App() {
       setVendorEditorDraft(persistedVendor);
       setVendorEditorOriginal(cloneVendor(persistedVendor));
       setVendorEditorIsNew(false);
-      setToast(validation.hasErrors ? "Vendor saved as Disabled because it has errors." : "Vendor saved to config.json.");
+      setToast("Vendor saved to config.json.");
     });
   }
 
