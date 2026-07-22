@@ -51,7 +51,8 @@ import { getDesktopApi } from "./desktop-api.js";
 const defaultAppName = "Local Model Router";
 
 const navItems = [
-  { id: "settings", label: "Settings", icon: Settings2 },
+  { id: "application", label: "Application", icon: Settings2 },
+  { id: "router", label: "Router", icon: Server },
   { id: "logs", label: "Logs", icon: Terminal },
 ];
 
@@ -62,7 +63,7 @@ const closeBehaviorOptions = [
 ];
 
 export default function App() {
-  const [page, setPage] = useState("settings");
+  const [page, setPage] = useState("application");
   const [draft, setDraft] = useState(defaultDraft);
   const [persistedDraft, setPersistedDraft] = useState(defaultDraft);
   const [health, setHealth] = useState(null);
@@ -98,7 +99,7 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = getDesktopApi().onOpenSettings?.(() => {
       closeVendorEditor();
-      setPage("settings");
+      setPage("application");
       void refreshHealth({ silent: true });
     });
 
@@ -168,7 +169,7 @@ export default function App() {
       setVendorEditorOriginal(null);
       setVendorEditorIsNew(false);
       clearVendorModelOptions();
-      setPage("settings");
+      setPage("router");
     }
     await loadState({ toastMessage: "Config reloaded." });
   }
@@ -424,7 +425,7 @@ export default function App() {
     setVendorEditorIsNew(false);
     setShowVendorKey(false);
     clearVendorModelOptions();
-    setPage("settings");
+    setPage("router");
   }
 
   function updateVendorEditor(field, value) {
@@ -608,7 +609,7 @@ export default function App() {
         <nav className="nav-list">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const activePage = page === "vendor-edit" ? "settings" : page;
+            const activePage = page === "vendor-edit" ? "router" : page;
             return (
               <button
                 key={item.id}
@@ -678,7 +679,16 @@ export default function App() {
         </section>
 
         <section className="content">
-          {page === "settings" && (
+          {page === "application" && (
+            <div className="settings-stack">
+              <AppSettingsPage
+                app={draft.app}
+                setAppSetting={setAppSetting}
+                busy={busy}
+              />
+            </div>
+          )}
+          {page === "router" && (
             <div className="settings-stack">
               <RouterPage
                 draft={draft}
@@ -689,11 +699,6 @@ export default function App() {
                 saveRouter={saveRouter}
                 busy={busy}
                 validation={routerValidation}
-              />
-              <AppSettingsPage
-                app={draft.app}
-                setAppSetting={setAppSetting}
-                busy={busy}
               />
               <VendorsPage
                 vendors={draft.vendors}
@@ -843,7 +848,7 @@ function getStatus(health) {
 }
 
 function eyebrowForPage(page) {
-  return page === "vendor-edit" ? "settings" : page;
+  return page === "vendor-edit" ? "router" : page;
 }
 
 function titleForPage(page, vendorEditorDraft) {
@@ -852,7 +857,8 @@ function titleForPage(page, vendorEditorDraft) {
   }
 
   return {
-    settings: "Settings",
+    application: "Application",
+    router: "Router",
     logs: "Runtime Logs",
   }[page];
 }
@@ -1163,7 +1169,7 @@ function VendorEditorPage({
         <div className="panel wide">
           <button type="button" className="text-command" onClick={onBack}>
             <ArrowLeft size={16} />
-            <span>Back to settings</span>
+            <span>Back to Router</span>
           </button>
         </div>
       </div>
@@ -1190,7 +1196,7 @@ function VendorEditorPage({
         <div className="editor-heading">
           <button type="button" className="text-command" onClick={onBack}>
             <ArrowLeft size={16} />
-            <span>Back to settings</span>
+            <span>Back to Router</span>
           </button>
 
           <div className="editor-actions">
