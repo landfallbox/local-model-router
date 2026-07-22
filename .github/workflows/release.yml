@@ -99,10 +99,9 @@ jobs:
         uses: softprops/action-gh-release@v3.0.2
         with:
           body: |
-            - Improve Router lifecycle management and tray control.
-            - Harden desktop IPC, configuration, and log handling.
-            - Add Windows login startup support.
-            - Upgrade the Electron and Node build environment.
+            - Add drag-and-drop and keyboard reordering for vendor priority.
+            - Improve application settings, Router, and sidebar layouts.
+            - Fix the Windows login startup setting layout.
           fail_on_unmatched_files: true
           files: |
             release/local-model-router-Setup-*.exe
