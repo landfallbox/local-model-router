@@ -159,7 +159,15 @@ async function loadConfig() {
   ensureConfigFile(paths);
   const { config, revision } = await readConfigStore(paths.configPath);
 
-  return { config, revision, paths, endpoint: getEndpoint(config), appName: APP_DISPLAY_NAME, isDevelopmentRuntime };
+  return {
+    config,
+    revision,
+    paths,
+    endpoint: getEndpoint(config),
+    appName: APP_DISPLAY_NAME,
+    appVersion: app.getVersion(),
+    isDevelopmentRuntime,
+  };
 }
 
 function getEndpoint(config) {
@@ -869,6 +877,7 @@ function createWindow({ showWhenReady = true } = {}) {
       sandbox: true,
     },
   });
+  mainWindow.setMenu(null);
 
   if (showWhenReady) {
     windowsToShowOnReady.add(mainWindow);

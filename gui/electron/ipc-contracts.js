@@ -73,7 +73,11 @@ export const ipcContracts = Object.freeze({
   "app:hideToTray": contract(emptyRequest, okResponse),
   "app:cancelClose": contract(emptyRequest, okResponse),
   "app:quitAndStop": contract(emptyRequest, okResponse),
-  "config:load": contract(emptyRequest, configResultSchema.extend({ appName: z.string(), isDevelopmentRuntime: z.boolean() })),
+  "config:load": contract(emptyRequest, configResultSchema.extend({
+    appName: z.string(),
+    appVersion: z.string(),
+    isDevelopmentRuntime: z.boolean(),
+  })),
   "config:save": contract(z.tuple([z.object({ config: configSchema, revision: z.string() })]), configResultSchema),
   "vendor:listModels": contract(z.tuple([vendorRequestSchema]), z.object({ models: z.array(z.string()), url: z.string().url() })),
   "router:start": contract(emptyRequest, routerResultSchema),

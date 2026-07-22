@@ -18,7 +18,6 @@ import {
   Save,
   Server,
   Settings2,
-  ShieldCheck,
   Square,
   Terminal,
   Trash2,
@@ -80,6 +79,7 @@ export default function App() {
   const [vendorModelsError, setVendorModelsError] = useState(null);
   const [restartRequired, setRestartRequired] = useState(false);
   const [appName, setAppName] = useState(defaultAppName);
+  const [appVersion, setAppVersion] = useState("");
   const [isDevelopmentRuntime, setIsDevelopmentRuntime] = useState(false);
   const [configRevision, setConfigRevision] = useState("");
   const vendorModelsRequestRef = useRef(0);
@@ -135,6 +135,7 @@ export default function App() {
     try {
       const state = await getDesktopApi().loadConfig();
       setAppName(state.appName || defaultAppName);
+      setAppVersion(state.appVersion || "");
       setIsDevelopmentRuntime(Boolean(state.isDevelopmentRuntime));
       const loadedDraft = toDraft(state.config);
       setConfigRevision(state.revision || "");
@@ -588,22 +589,16 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-identity">
-            <div className="brand-mark">
-              <ShieldCheck size={20} />
-            </div>
-            <div>
-              <div className="brand-title">{appName}</div>
-              <div className="brand-subtitle">{appName === defaultAppName ? "Desktop Control" : "Development Control"}</div>
-            </div>
+          <div className="brand-title">Local Model Router Dev</div>
+          <div className="brand-meta-row">
+            <div className="brand-version">{appVersion ? `v${appVersion}` : ""}</div>
+            <SidebarUpdateButton
+              updateState={updateState}
+              downloadUpdate={downloadAppUpdate}
+              installUpdate={installAppUpdate}
+              busy={busy}
+            />
           </div>
-
-          <SidebarUpdateButton
-            updateState={updateState}
-            downloadUpdate={downloadAppUpdate}
-            installUpdate={installAppUpdate}
-            busy={busy}
-          />
         </div>
 
         <nav className="nav-list">
@@ -991,12 +986,12 @@ function SidebarUpdateButton({ updateState, downloadUpdate, installUpdate, busy 
     return (
       <button
         type="button"
-        className="sidebar-update-button ready"
+        className="update-status ready"
         onClick={installUpdate}
         disabled={isInstalling}
         title={`Install version ${updateState.availableVersion}`}
       >
-        {isInstalling ? <Loader2 className="spin" size={17} /> : <RotateCcw size={17} />}
+        {isInstalling ? <Loader2 className="spin" size={13} /> : <span className="update-status-dot" />}
         <span>Restart to update</span>
       </button>
     );
@@ -1004,14 +999,9 @@ function SidebarUpdateButton({ updateState, downloadUpdate, installUpdate, busy 
 
   if (isDownloading) {
     return (
-      <div className="sidebar-update-progress" aria-label={`Downloading update ${percent}%`}>
-        <div className="sidebar-update-progress-label">
-          <span>Downloading</span>
-          <span>{percent}%</span>
-        </div>
-        <div className="sidebar-update-progress-track">
-          <div style={{ width: `${percent}%` }} />
-        </div>
+      <div className="update-status downloading" aria-label={`Downloading update ${percent}%`}>
+        <Loader2 className="spin" size={13} />
+        <span>Downloading {percent}%</span>
       </div>
     );
   }
@@ -1020,10 +1010,11 @@ function SidebarUpdateButton({ updateState, downloadUpdate, installUpdate, busy 
     return (
       <button
         type="button"
-        className="sidebar-update-button failed"
+        className="update-status failed"
         onClick={downloadUpdate}
         title={updateState.error || "Update download failed"}
       >
+        <span className="update-status-dot" />
         <span>Update failed · Retry</span>
       </button>
     );
@@ -1032,11 +1023,12 @@ function SidebarUpdateButton({ updateState, downloadUpdate, installUpdate, busy 
   return (
     <button
       type="button"
-      className="sidebar-update-button"
+      className="update-status"
       onClick={downloadUpdate}
       disabled={isInstalling}
       title={`Download version ${updateState.availableVersion}`}
     >
+      <span className="update-status-dot" />
       <span>Update available</span>
     </button>
   );
