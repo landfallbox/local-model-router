@@ -960,7 +960,8 @@ function AppSettingsPage({ app, setAppSetting, busy }) {
               ))}
             </div>
           </div>
-          <label className="toggle-row wide" title="Start Local Model Router after signing in to Windows">
+          <label className="app-setting-row" title="Start Local Model Router after signing in to Windows">
+            <span>Start at login</span>
             <input
               className="checkbox"
               type="checkbox"
@@ -968,7 +969,6 @@ function AppSettingsPage({ app, setAppSetting, busy }) {
               onChange={(event) => setAppSetting("startAtLogin", event.target.checked)}
               disabled={busy === "saveApp"}
             />
-            <span>Start at login</span>
           </label>
         </div>
       </div>

@@ -1078,6 +1078,43 @@ h2 {
   color: var(--text);
 }
 
+.toggle-row.wide {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.app-setting-row {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--input);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.app-setting-row:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-alt);
+}
+
+.app-setting-row:has(.checkbox:disabled) {
+  cursor: wait;
+  opacity: 0.58;
+}
+
 .toggle-row.compact {
   min-width: 76px;
   min-height: 38px;
