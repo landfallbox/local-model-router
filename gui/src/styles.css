@@ -888,12 +888,13 @@ h2 {
 }
 
 .vendor-card {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
   min-height: 92px;
-  padding: 16px;
+  padding: 16px 16px 16px 40px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
@@ -918,6 +919,13 @@ h2 {
 .vendor-card.invalid {
   border-color: var(--danger-border);
   opacity: 1;
+}
+
+.vendor-card.dragging {
+  border-color: var(--primary);
+  box-shadow: 0 10px 24px rgba(4, 18, 46, 0.2);
+  cursor: grabbing;
+  opacity: 0.88;
 }
 
 .vendor-card-main {
@@ -1009,6 +1017,49 @@ h2 {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.drag-handle {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  width: 18px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background-color: transparent;
+  background-image:
+    radial-gradient(circle at 5px 4px, var(--muted) 1.35px, transparent 1.65px),
+    radial-gradient(circle at 13px 4px, var(--muted) 1.35px, transparent 1.65px);
+  background-position: left top;
+  background-repeat: repeat;
+  background-size: 18px 8px;
+  cursor: grab;
+  opacity: 0.48;
+  touch-action: none;
+  transition:
+    background-color 120ms ease,
+    opacity 120ms ease;
+  transform: translateY(-50%);
+}
+
+.drag-handle:hover,
+.drag-handle:focus-visible {
+  background-color: var(--primary-soft);
+  background-image:
+    radial-gradient(circle at 5px 4px, var(--primary) 1.35px, transparent 1.65px),
+    radial-gradient(circle at 13px 4px, var(--primary) 1.35px, transparent 1.65px);
+  opacity: 1;
+  outline: none;
+}
+
+.drag-handle:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 .toggle-row {

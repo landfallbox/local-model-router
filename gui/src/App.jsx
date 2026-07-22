@@ -1,8 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDown,
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   ArrowLeft,
-  ArrowUp,
   ChevronDown,
   ChevronRight,
   Clipboard,
@@ -395,15 +409,18 @@ export default function App() {
     void run("vendors", () => persistVendorList(vendors, "Vendor deleted."));
   }
 
-  function moveVendor(index, direction) {
-    const nextIndex = index + direction;
-    if (nextIndex < 0 || nextIndex >= draft.vendors.length) {
+  function reorderVendors(sourceIndex, targetIndex) {
+    if (
+      sourceIndex === targetIndex
+      || sourceIndex < 0
+      || targetIndex < 0
+      || sourceIndex >= draft.vendors.length
+      || targetIndex >= draft.vendors.length
+    ) {
       return;
     }
 
-    const vendors = [...draft.vendors];
-    const [vendor] = vendors.splice(index, 1);
-    vendors.splice(nextIndex, 0, vendor);
+    const vendors = arrayMove(draft.vendors, sourceIndex, targetIndex);
     setDraft((current) => ({ ...current, vendors }));
     void run("vendors", () => persistVendorList(vendors));
   }
@@ -700,7 +717,7 @@ export default function App() {
                 updateVendor={updateVendor}
                 addVendor={addVendor}
                 removeVendor={removeVendor}
-                moveVendor={moveVendor}
+                reorderVendors={reorderVendors}
                 openVendorEditor={openVendorEditor}
                 busy={busy === "vendors"}
               />
@@ -1039,10 +1056,23 @@ function VendorsPage({
   updateVendor,
   addVendor,
   removeVendor,
-  moveVendor,
+  reorderVendors,
   openVendorEditor,
   busy,
 }) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function handleDragEnd({ active, over }) {
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    reorderVendors(Number(active.id), Number(over.id));
+  }
+
   return (
     <div className="panel full">
       <div className="panel-heading row">
@@ -1052,6 +1082,7 @@ function VendorsPage({
         </div>
       </div>
 
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <div className="vendor-list">
         {vendors.length === 0 && (
           <div className="empty-state">
@@ -1060,80 +1091,119 @@ function VendorsPage({
           </div>
         )}
 
-        {vendors.map((vendor, index) => {
-          const validation = validateVendor(vendor);
-          const isEnabled = vendor.enabled !== false && !validation.hasErrors;
-          const enabledModels = getVendorModels(vendor).filter((model) => model.enabled !== false);
-          return (
-            <section
-              className={`vendor-card ${isEnabled ? "" : "disabled"} ${validation.hasErrors ? "invalid" : ""}`}
+        <SortableContext items={vendors.map((_vendor, index) => index)} strategy={verticalListSortingStrategy}>
+          {vendors.map((vendor, index) => (
+            <SortableVendorCard
               key={`${vendor.name}-${index}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => openVendorEditor(index)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openVendorEditor(index);
-                }
-              }}
-            >
-              <div className="vendor-card-main">
-                <div className="vendor-title">
-                  <span className="priority-badge">{index + 1}</span>
-                  <div>
-                    <h3>{vendor.name || "New vendor"}</h3>
-                    <span>{vendor.baseUrl || "Base URL not set"}</span>
-                  </div>
-                </div>
-
-                <div className="vendor-summary">
-                  {enabledModels.slice(0, 3).map((model) => (
-                    <span key={model.id}>{model.id}</span>
-                  ))}
-                  {enabledModels.length > 3 && <span>{enabledModels.length} models</span>}
-                  {validation.errors.map((message) => (
-                    <span className="summary-key danger" key={message}>{message}</span>
-                  ))}
-                  {validation.warnings.map((message) => (
-                    <span className="summary-key warning" key={message}>{message}</span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="vendor-actions" onClick={(event) => event.stopPropagation()}>
-                <label
-                  className="toggle-row"
-                  title={validation.hasErrors ? "Fix errors before enabling vendor" : isEnabled ? "Disable vendor" : "Enable vendor"}
-                >
-                  <input
-                    className="checkbox"
-                    type="checkbox"
-                    checked={isEnabled}
-                    onChange={(event) => updateVendor(index, "enabled", event.target.checked)}
-                    aria-label={isEnabled ? "Disable vendor" : "Enable vendor"}
-                    disabled={busy || validation.hasErrors}
-                  />
-                  <span>{isEnabled ? "Enabled" : "Disabled"}</span>
-                </label>
-                <button type="button" className="icon-command" onClick={() => moveVendor(index, -1)} title="Move up" disabled={busy}>
-                  <ArrowUp size={16} />
-                </button>
-                <button type="button" className="icon-command" onClick={() => moveVendor(index, 1)} title="Move down" disabled={busy}>
-                  <ArrowDown size={16} />
-                </button>
-                <button type="button" className="icon-command danger" onClick={() => removeVendor(index)} title="Remove" disabled={busy}>
-                  <Trash2 size={16} />
-                </button>
-                <span className="card-chevron">
-                  <ChevronRight size={18} />
-                </span>
-              </div>
-            </section>
-          );
-        })}
+              vendor={vendor}
+              index={index}
+              updateVendor={updateVendor}
+              removeVendor={removeVendor}
+              openVendorEditor={openVendorEditor}
+              busy={busy}
+            />
+          ))}
+        </SortableContext>
       </div>
+      </DndContext>
     </div>
+  );
+}
+
+function SortableVendorCard({ vendor, index, updateVendor, removeVendor, openVendorEditor, busy }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: index, disabled: busy });
+  const validation = validateVendor(vendor);
+  const isEnabled = vendor.enabled !== false && !validation.hasErrors;
+  const enabledModels = getVendorModels(vendor).filter((model) => model.enabled !== false);
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <section
+      ref={setNodeRef}
+      style={style}
+      className={`vendor-card ${isEnabled ? "" : "disabled"} ${validation.hasErrors ? "invalid" : ""} ${isDragging ? "dragging" : ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => openVendorEditor(index)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) {
+          return;
+        }
+
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openVendorEditor(index);
+        }
+      }}
+    >
+      <button
+        ref={setActivatorNodeRef}
+        type="button"
+        className="drag-handle"
+        title="Drag to reorder. Press Space, then Arrow keys to reorder with the keyboard."
+        aria-label="Reorder vendor"
+        onClick={(event) => event.stopPropagation()}
+        disabled={busy}
+        {...attributes}
+        {...listeners}
+      />
+      <div className="vendor-card-main">
+        <div className="vendor-title">
+          <span className="priority-badge">{index + 1}</span>
+          <div>
+            <h3>{vendor.name || "New vendor"}</h3>
+            <span>{vendor.baseUrl || "Base URL not set"}</span>
+          </div>
+        </div>
+
+        <div className="vendor-summary">
+          {enabledModels.slice(0, 3).map((model) => (
+            <span key={model.id}>{model.id}</span>
+          ))}
+          {enabledModels.length > 3 && <span>{enabledModels.length} models</span>}
+          {validation.errors.map((message) => (
+            <span className="summary-key danger" key={message}>{message}</span>
+          ))}
+          {validation.warnings.map((message) => (
+            <span className="summary-key warning" key={message}>{message}</span>
+          ))}
+        </div>
+      </div>
+
+      <div className="vendor-actions" onClick={(event) => event.stopPropagation()}>
+        <label
+          className="toggle-row"
+          title={validation.hasErrors ? "Fix errors before enabling vendor" : isEnabled ? "Disable vendor" : "Enable vendor"}
+        >
+          <input
+            className="checkbox"
+            type="checkbox"
+            checked={isEnabled}
+            onChange={(event) => updateVendor(index, "enabled", event.target.checked)}
+            aria-label={isEnabled ? "Disable vendor" : "Enable vendor"}
+            disabled={busy || validation.hasErrors}
+          />
+          <span>{isEnabled ? "Enabled" : "Disabled"}</span>
+        </label>
+        <button type="button" className="icon-command danger" onClick={() => removeVendor(index)} title="Remove" disabled={busy}>
+          <Trash2 size={16} />
+        </button>
+        <span className="card-chevron">
+          <ChevronRight size={18} />
+        </span>
+      </div>
+    </section>
   );
 }
 
