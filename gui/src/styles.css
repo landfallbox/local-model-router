@@ -43,10 +43,10 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b1020;
-    --surface: #111827;
-    --surface-alt: #172033;
-    --input: #0f172a;
+    --bg: #0c1322;
+    --surface: #101827;
+    --surface-alt: #131d2f;
+    --input: #0e1626;
     --line: #2f3b4f;
     --line-strong: #475569;
     --text: #e5e7eb;
@@ -415,7 +415,7 @@ input[readonly] {
   gap: 18px;
   min-height: 88px;
   padding: 18px 24px;
-  background: var(--surface);
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
 
