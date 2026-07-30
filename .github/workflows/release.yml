@@ -118,7 +118,24 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run dist:mac -- --publish never
+        run: |
+          $signingVariables = @(
+            "CSC_LINK",
+            "CSC_KEY_PASSWORD",
+            "APPLE_ID",
+            "APPLE_APP_SPECIFIC_PASSWORD",
+            "APPLE_TEAM_ID"
+          )
+          foreach ($name in $signingVariables) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              Remove-Item -Path "Env:$name" -ErrorAction SilentlyContinue
+            }
+          }
+          if (-not (Test-Path Env:CSC_LINK)) {
+            $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+            Write-Output "Apple signing certificate is not configured; building unsigned macOS installers."
+          }
+          npm run dist:mac -- --publish never
 
       - name: Validate macOS release assets
         shell: pwsh
