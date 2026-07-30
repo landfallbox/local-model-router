@@ -36,8 +36,10 @@
     "gui:preview": "npm run gui:build && electron .",
     "electron:install": "install-electron",
     "icons:build": "node scripts/build-icons.mjs",
-    "dist:windows": "npm run electron:install && npm run icons:build && npm run gui:build && node scripts/prepare-electron-builder.mjs && electron-builder --win nsis --x64",
-    "dist:windows:dir": "npm run electron:install && npm run icons:build && npm run gui:build && node scripts/prepare-electron-builder.mjs && electron-builder --win dir --x64"
+    "dist:windows": "npm run electron:install && npm run icons:build && npm run gui:build && node scripts/prepare-electron-builder.mjs && electron-builder --win nsis --x64 --config.electronDist=node_modules/electron/dist",
+    "dist:windows:dir": "npm run electron:install && npm run icons:build && npm run gui:build && node scripts/prepare-electron-builder.mjs && electron-builder --win dir --x64 --config.electronDist=node_modules/electron/dist",
+    "dist:mac": "npm run icons:build && npm run gui:build && electron-builder --mac dmg zip --universal",
+    "dist:mac:dir": "npm run icons:build && npm run gui:build && electron-builder --mac dir --universal"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -73,7 +75,6 @@
         "repo": "local-model-router"
       }
     ],
-    "electronDist": "node_modules/electron/dist",
     "files": [
       "package.json",
       "config.example.json",
@@ -86,22 +87,22 @@
       "src/**/*",
       "node_modules/zod/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "build/bin",
-        "to": "bin",
-        "filter": [
-          "node.exe"
-        ]
-      },
-      {
-        "from": "build/icon.ico",
-        "to": "assets/icon.ico"
-      }
-    ],
     "win": {
       "icon": "build/icon.ico",
       "legalTrademarks": "Local Model Router",
+      "extraResources": [
+        {
+          "from": "build/bin",
+          "to": "bin",
+          "filter": [
+            "node.exe"
+          ]
+        },
+        {
+          "from": "build/icon.ico",
+          "to": "assets/icon.ico"
+        }
+      ],
       "target": [
         {
           "target": "nsis",
@@ -111,6 +112,44 @@
         }
       ],
       "artifactName": "${name}-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "build/icon.png",
+          "to": "assets/icon.png"
+        },
+        {
+          "from": "build/trayTemplate.png",
+          "to": "assets/trayTemplate.png"
+        },
+        {
+          "from": "build/trayTemplate@2x.png",
+          "to": "assets/trayTemplate@2x.png"
+        }
+      ],
+      "artifactName": "${name}-${version}-mac-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "Local Model Router ${version}"
     },
     "nsis": {
       "oneClick": false,

@@ -16,13 +16,13 @@ The router tries enabled vendors in priority order. If the current vendor times 
 - Local vendor priority and fallback configuration.
 - Local API key required for access.
 - Electron GUI for configuration, status, logs, and tray control.
-- Optional Windows login startup, disabled by default.
+- Optional login startup on Windows and macOS, disabled by default.
 - Structured logs without API keys, authorization headers, secrets, or upstream response bodies.
 
 ## Quick Start
 
-- Node.js 18.17 or newer.
-- Windows is required for the packaged desktop installer.
+- Node.js 22.12 or newer.
+- Windows or macOS for desktop development; formal installers are built in CI on their target operating system.
 - At least one upstream OpenAI-compatible chat-completions provider.
 
 ```powershell
@@ -100,7 +100,9 @@ Example client entry:
 - Fallback is enabled for request timeouts, network failures before a response, `408`, `409`, `425`, `429`, `500`, `502`, `503`, `504`, and other `5xx` responses.
 - Fallback is not enabled by default for `400`, `401`, `403`, or `404`, because those usually indicate configuration, authentication, or request-format problems.
 - If an upstream fails before streaming starts, another vendor can be tried. Once partial output has reached the client, the router cannot switch vendors without corrupting the stream.
-- Packaged Windows builds store configuration at `%APPDATA%\Local Model Router\config.json`.
+- Packaged builds store configuration in Electron's platform user-data directory:
+  - Windows: `%APPDATA%\Local Model Router\config.json`.
+  - macOS: `~/Library/Application Support/Local Model Router/config.json`.
 
 ## Development
 
@@ -134,9 +136,31 @@ Build the Windows NSIS installer:
 npm run dist:windows
 ```
 
-Packaged Windows builds check GitHub Releases for updates after startup. The app only checks for a newer version automatically; users click the update button before the installer is downloaded.
+Build an unpacked macOS Universal app on macOS:
 
-For auto-update to work, each GitHub Release must include the installer `.exe`, its `.exe.blockmap`, and `latest.yml` from the `release` directory.
+```powershell
+npm run dist:mac:dir
+```
+
+Build the macOS Universal DMG and ZIP installers on macOS:
+
+```powershell
+npm run dist:mac
+```
+
+Packaged Windows and macOS builds check GitHub Releases for updates after startup. The app only checks for a newer version automatically; users click the update button before the update is downloaded.
+
+For auto-update to work, each GitHub Release must include the Windows installer `.exe`, its `.exe.blockmap`, and `latest.yml`, plus the macOS `.dmg`, `.zip`, `.zip.blockmap`, and `latest-mac.yml` from the `release` directory.
+
+Tag pushes matching `v*` build both platforms and publish their artifacts in one GitHub Release. macOS builds are Universal binaries for Intel and Apple Silicon. To produce signed and notarized public macOS releases, configure these repository secrets:
+
+- `MAC_CSC_LINK`: Base64-encoded Developer ID Application certificate or certificate URL.
+- `MAC_CSC_KEY_PASSWORD`: certificate password.
+- `APPLE_ID`: Apple developer account email.
+- `APPLE_APP_SPECIFIC_PASSWORD`: app-specific password for notarization.
+- `APPLE_TEAM_ID`: Apple Developer Team ID.
+
+Without those secrets, CI still creates an unsigned macOS package suitable for internal testing, but Gatekeeper will warn users before opening it.
 
 Preview the complete update UI in development mode without contacting GitHub or installing anything:
 
@@ -165,7 +189,7 @@ npm run test:electron
 npm run gui:build
 ```
 
-`npm test` contains the fast Router and repository tests. `npm run test:electron` launches the real Electron development app with isolated temporary configuration, verifies that it owns the Router process, verifies that hiding the window to the tray keeps Router running, and verifies that an explicit app exit stops Router. CI runs this Electron lifecycle suite in a separate Windows job so desktop failures do not obscure the fast test results.
+`npm test` contains the fast Router and repository tests. `npm run test:electron` launches the real Electron development app with isolated temporary configuration, verifies that it owns the Router process, verifies that hiding the window keeps Router running, and verifies that an explicit app exit stops Router. CI runs the fast and Electron lifecycle suites on both Windows and macOS.
 
 ## Security And Contributing
 

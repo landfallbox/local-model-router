@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build-windows:
     runs-on: windows-latest
 
     steps:
@@ -32,55 +32,26 @@ jobs:
           }
 
       - name: Install dependencies
+        shell: pwsh
         run: npm ci
 
       - name: Install Electron runtime
+        shell: pwsh
         run: npm run electron:install
 
-      - name: Syntax check
-        run: npm run check
-
-      - name: Smoke tests
+      - name: Validate and test
         shell: pwsh
         run: |
-          npm test 2>&1 | Tee-Object -FilePath smoke-test.log
-          $exitCode = $LASTEXITCODE
-          if ($exitCode -ne 0) {
-            $logTail = Get-Content smoke-test.log -Tail 100
-            $annotation = ($logTail -join "`n").Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-            Write-Output "::error title=Smoke tests failed::$annotation"
-            exit $exitCode
-          }
-
-      - name: Build icons
-        run: npm run icons:build
-
-      - name: Build GUI
-        run: npm run gui:build
-
-      - name: Electron lifecycle tests
-        run: npm run test:electron
-
-      - name: Prepare bundled Node.js
-        run: node scripts/prepare-electron-builder.mjs
+          npm run check
+          npm test
+          npm run gui:build
+          npm run test:electron
 
       - name: Build Windows installer
         shell: pwsh
-        run: |
-          npx electron-builder --win nsis --x64 --publish never 2>&1 | Tee-Object -FilePath release-build.log
-          $exitCode = $LASTEXITCODE
-          if ($exitCode -ne 0) {
-            "## Windows installer build failed" >> $env:GITHUB_STEP_SUMMARY
-            '```text' >> $env:GITHUB_STEP_SUMMARY
-            $logTail = Get-Content release-build.log -Tail 100
-            $logTail >> $env:GITHUB_STEP_SUMMARY
-            '```' >> $env:GITHUB_STEP_SUMMARY
-            $annotation = ($logTail -join "`n").Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-            Write-Output "::error title=Windows installer build failed::$annotation"
-            exit $exitCode
-          }
+        run: npm run dist:windows -- --publish never
 
-      - name: Validate release assets
+      - name: Validate Windows release assets
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -95,15 +66,112 @@ jobs:
             }
           }
 
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@v3.0.2
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v4
         with:
-          body: |
-            - Add drag-and-drop and keyboard reordering for vendor priority.
-            - Improve application settings, Router, and sidebar layouts.
-            - Fix the Windows login startup setting layout.
-          fail_on_unmatched_files: true
-          files: |
+          name: windows-release
+          path: |
             release/local-model-router-Setup-*.exe
             release/local-model-router-Setup-*.exe.blockmap
             release/latest.yml
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tagVersion = "${{ github.ref_name }}" -replace '^v', ''
+          if ($packageVersion -ne $tagVersion) {
+            throw "Tag version $tagVersion does not match package version $packageVersion."
+          }
+
+      - name: Install dependencies
+        shell: pwsh
+        run: npm ci
+
+      - name: Validate and test
+        shell: pwsh
+        run: |
+          npm run check
+          npm test
+          npm run gui:build
+          npm run test:electron
+
+      - name: Build macOS installers
+        shell: pwsh
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run dist:mac -- --publish never
+
+      - name: Validate macOS release assets
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $assets = @(
+            "release/local-model-router-$version-mac-universal.dmg",
+            "release/local-model-router-$version-mac-universal.dmg.blockmap",
+            "release/local-model-router-$version-mac-universal.zip",
+            "release/local-model-router-$version-mac-universal.zip.blockmap",
+            "release/latest-mac.yml"
+          )
+          foreach ($asset in $assets) {
+            if (-not (Test-Path $asset -PathType Leaf)) {
+              throw "Missing release asset: $asset"
+            }
+          }
+
+      - name: Upload macOS release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: |
+            release/local-model-router-*-mac-universal.dmg
+            release/local-model-router-*-mac-universal.dmg.blockmap
+            release/local-model-router-*-mac-universal.zip
+            release/local-model-router-*-mac-universal.zip.blockmap
+            release/latest-mac.yml
+          if-no-files-found: error
+
+  publish:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-release"
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3.0.2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/local-model-router-Setup-*.exe
+            release-assets/local-model-router-Setup-*.exe.blockmap
+            release-assets/latest.yml
+            release-assets/local-model-router-*-mac-universal.dmg
+            release-assets/local-model-router-*-mac-universal.dmg.blockmap
+            release-assets/local-model-router-*-mac-universal.zip
+            release-assets/local-model-router-*-mac-universal.zip.blockmap
+            release-assets/latest-mac.yml

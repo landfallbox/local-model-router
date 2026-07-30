@@ -85,6 +85,10 @@ function resolveNodePath(packageRoot) {
     return process.env.LOCAL_MODEL_ROUTER_NODE;
   }
 
+  if (app.isPackaged && process.platform === "darwin") {
+    return process.execPath;
+  }
+
   const executableName = process.platform === "win32" ? "node.exe" : "node";
   const candidates = [
     join(packageRoot, "bin", executableName),
@@ -100,24 +104,48 @@ function resolveNodePath(packageRoot) {
   return executableName;
 }
 
-function resolveIconPath() {
+function resolveAppIconPath() {
+  const iconName = process.platform === "darwin" ? "icon.png" : "icon.ico";
   const candidates = [
     process.env.LOCAL_MODEL_ROUTER_ICON,
-    app.isPackaged ? join(process.resourcesPath, "assets", "icon.ico") : "",
-    resolve(__dirname, "..", "..", "build", "icon.ico"),
+    app.isPackaged ? join(process.resourcesPath, "assets", iconName) : "",
+    resolve(__dirname, "..", "..", "build", iconName),
   ];
 
   return candidates.filter(Boolean).find((candidate) => existsSync(candidate)) || "";
 }
 
 function createAppIcon() {
-  const iconPath = resolveIconPath();
+  const iconPath = resolveAppIconPath();
   if (!iconPath) {
     return null;
   }
 
   const icon = nativeImage.createFromPath(iconPath);
   return icon.isEmpty() ? null : icon;
+}
+
+function createTrayIcon() {
+  if (process.platform !== "darwin") {
+    return createAppIcon();
+  }
+
+  const candidates = [
+    process.env.LOCAL_MODEL_ROUTER_TRAY_ICON,
+    app.isPackaged ? join(process.resourcesPath, "assets", "trayTemplate.png") : "",
+    resolve(__dirname, "..", "..", "build", "trayTemplate.png"),
+  ];
+  const iconPath = candidates.filter(Boolean).find((candidate) => existsSync(candidate));
+  if (!iconPath) {
+    return null;
+  }
+
+  const icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) {
+    return null;
+  }
+  icon.setTemplateImage(true);
+  return icon;
 }
 
 function ensureConfigFile(paths = getPaths()) {
@@ -354,6 +382,7 @@ async function startRouterInternal() {
       cwd: paths.appDir,
       env: {
         ...process.env,
+        ...(app.isPackaged && process.platform === "darwin" ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
         ROUTER_CONFIG: paths.configPath,
         LOCAL_MODEL_ROUTER_DATA_DIR: paths.dataDir,
         LOCAL_MODEL_ROUTER_INSTANCE_ID: instanceId,
@@ -720,6 +749,16 @@ function hasHiddenStartArg(args = process.argv) {
   return args.some((arg) => HIDDEN_START_ARGS.has(String(arg).toLowerCase())) || process.env.LOCAL_MODEL_ROUTER_START_HIDDEN === "1";
 }
 
+function isBackgroundStartup() {
+  if (hasHiddenStartArg()) {
+    return true;
+  }
+
+  return app.isPackaged
+    && process.platform === "darwin"
+    && app.getLoginItemSettings().wasOpenedAtLogin === true;
+}
+
 async function installDownloadedUpdate() {
   const updateState = getUpdateState();
   if (updateState.mock || updateState.status !== "downloaded") {
@@ -933,15 +972,20 @@ function validateRendererUrl(value) {
 }
 
 function applyPackagedLoginStartup(enabled) {
-  if (!app.isPackaged || process.platform !== "win32") {
+  if (!app.isPackaged || !["darwin", "win32"].includes(process.platform)) {
     return;
   }
 
-  app.setLoginItemSettings({
-    openAtLogin: enabled === true,
-    path: process.execPath,
-    args: ["--hidden"],
-  });
+  if (process.platform === "win32") {
+    app.setLoginItemSettings({
+      openAtLogin: enabled === true,
+      path: process.execPath,
+      args: ["--hidden"],
+    });
+    return;
+  }
+
+  app.setLoginItemSettings({ openAtLogin: enabled === true, openAsHidden: true });
 }
 
 function registerIpcHandler(channel, handler) {
@@ -956,7 +1000,7 @@ function registerIpcHandler(channel, handler) {
 }
 
 const trayController = createTrayController({
-  createAppIcon,
+  createAppIcon: createTrayIcon,
   downloadUpdate,
   getHealth,
   getUpdateState,
@@ -1045,7 +1089,7 @@ if (!hasSingleInstanceLock) {
     await trayController.refreshStatus().catch(() => null);
     void checkForUpdates().catch(() => null);
 
-    if (hasHiddenStartArg()) {
+    if (isBackgroundStartup()) {
       void startRouterForBackgroundStartup();
     } else {
       createWindow();

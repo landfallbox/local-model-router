@@ -84,7 +84,7 @@ function updateToastForState(updateState, fallback) {
     return fallback;
   }
   if (!updateState.supported) {
-    return updateState.error || "Updates are available only in packaged Windows builds.";
+    return updateState.error || "Updates are available only in supported packaged builds.";
   }
   if (updateState.status === "available") {
     return `Version ${updateState.availableVersion} is available.`;

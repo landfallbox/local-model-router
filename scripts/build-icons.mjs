@@ -9,6 +9,9 @@ const buildDir = join(projectRoot, "build");
 const sourceSvg = join(buildDir, "icon.svg");
 const pngDir = join(buildDir, "icons");
 const iconPath = join(buildDir, "icon.ico");
+const macIconPath = join(buildDir, "icon.png");
+const trayIconPath = join(buildDir, "trayTemplate.png");
+const trayIcon2xPath = join(buildDir, "trayTemplate@2x.png");
 const installerIconPath = join(buildDir, "installerIcon.ico");
 const uninstallerIconPath = join(buildDir, "uninstallerIcon.ico");
 const sizes = [16, 24, 32, 48, 64, 128, 256];
@@ -26,9 +29,12 @@ const ico = await createIco(pngFiles);
 await writeFile(iconPath, ico);
 await writeFile(installerIconPath, ico);
 await writeFile(uninstallerIconPath, ico);
+await renderSvgToPng(1024, macIconPath);
+await renderTrayIcon(16, trayIconPath);
+await renderTrayIcon(32, trayIcon2xPath);
 await rm(pngDir, { recursive: true, force: true });
 
-console.log(`Prepared Windows icons: ${iconPath}`);
+console.log(`Prepared desktop icons: ${iconPath}, ${macIconPath}`);
 
 async function renderSvgToPng(size, outputPath) {
   await sharp(sourceSvg)
@@ -80,4 +86,25 @@ function readPngSize(buffer) {
     width: buffer.readUInt32BE(16),
     height: buffer.readUInt32BE(20),
   };
+}
+
+async function renderTrayIcon(size, outputPath) {
+  const scale = size / 16;
+  const strokeWidth = Math.max(1, Math.round(scale * 1.5));
+  const circleRadius = Math.max(1, Math.round(scale * 1.5));
+  const svg = Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <g fill="none" stroke="#000" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M${4 * scale} ${4 * scale}H${12 * scale}V${12 * scale}H${4 * scale}"/>
+        <path d="M${8 * scale} ${4 * scale}V${12 * scale}"/>
+      </g>
+      <g fill="#000">
+        <circle cx="${4 * scale}" cy="${4 * scale}" r="${circleRadius}"/>
+        <circle cx="${8 * scale}" cy="${8 * scale}" r="${circleRadius}"/>
+        <circle cx="${12 * scale}" cy="${12 * scale}" r="${circleRadius}"/>
+      </g>
+    </svg>
+  `);
+
+  await sharp(svg).png().toFile(outputPath);
 }

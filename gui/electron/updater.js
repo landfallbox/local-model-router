@@ -6,7 +6,7 @@ const { app, BrowserWindow, shell } = electron;
 const RELEASES_URL = "https://github.com/landfallbox/local-model-router/releases/latest";
 const mockUpdateMode = String(process.env.LOCAL_MODEL_ROUTER_MOCK_UPDATE || "").trim().toLowerCase();
 const isMockUpdateEnabled = Boolean(!app?.isPackaged && mockUpdateMode);
-const isRealUpdaterSupported = Boolean(app?.isPackaged && process.platform === "win32");
+const isRealUpdaterSupported = Boolean(app?.isPackaged && ["darwin", "win32"].includes(process.platform));
 const isUpdaterSupported = isRealUpdaterSupported || isMockUpdateEnabled;
 const mockUpdateVersion = String(process.env.LOCAL_MODEL_ROUTER_MOCK_UPDATE_VERSION || "0.3.0-dev-preview").trim();
 
@@ -183,7 +183,7 @@ export async function checkForUpdates({ manual = false } = {}) {
   if (!isUpdaterSupported) {
     return update({
       status: "unsupported",
-      error: manual ? "Updates are available only in packaged Windows builds." : "",
+      error: manual ? "Updates are available only in supported packaged builds." : "",
       progress: null,
     });
   }
@@ -222,7 +222,7 @@ export async function downloadUpdate() {
   if (!isUpdaterSupported) {
     return update({
       status: "unsupported",
-      error: "Updates are available only in packaged Windows builds.",
+      error: "Updates are available only in supported packaged builds.",
       progress: null,
     });
   }
@@ -274,7 +274,7 @@ export function installUpdate() {
   if (!isUpdaterSupported) {
     return update({
       status: "unsupported",
-      error: "Updates are available only in packaged Windows builds.",
+      error: "Updates are available only in supported packaged builds.",
       progress: null,
     });
   }

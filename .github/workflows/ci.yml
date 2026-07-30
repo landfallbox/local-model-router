@@ -11,7 +11,11 @@ permissions:
 
 jobs:
   test:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
@@ -24,19 +28,27 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        shell: pwsh
         run: npm ci
 
       - name: Syntax check
+        shell: pwsh
         run: npm run check
 
       - name: Smoke tests
+        shell: pwsh
         run: npm test
 
       - name: Build GUI
+        shell: pwsh
         run: npm run gui:build
 
   electron-lifecycle:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
 
     steps:
@@ -50,10 +62,13 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        shell: pwsh
         run: npm ci
 
       - name: Build GUI
+        shell: pwsh
         run: npm run gui:build
 
       - name: Electron lifecycle tests
+        shell: pwsh
         run: npm run test:electron

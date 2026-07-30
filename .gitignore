@@ -5,4 +5,5 @@ dist/
 release/
 build/bin/
 build/*.ico
+build/*.png
 *.local.json

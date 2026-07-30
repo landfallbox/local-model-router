@@ -805,7 +805,7 @@ export default function App() {
               <XCircle size={22} />
             </div>
             <div>
-              <p className="modal-message">Keep Router available from the Windows tray, or exit and stop it now.</p>
+              <p className="modal-message">Keep Router available from the system tray or menu bar, or exit and stop it now.</p>
               <div className="close-choice-list">
                 <span>Tray keeps Settings one double-click away.</span>
                 <span>Exit stops the local Router process before closing.</span>
@@ -972,7 +972,7 @@ function AppSettingsPage({ app, setAppSetting, busy }) {
               ))}
             </div>
           </div>
-          <label className="app-setting-row" title="Start Local Model Router after signing in to Windows">
+          <label className="app-setting-row" title="Start Local Model Router after signing in">
             <span>Start at login</span>
             <input
               className="checkbox"
