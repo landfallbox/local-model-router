@@ -247,6 +247,79 @@ async function testTimeoutFallback() {
   }
 }
 
+async function testCircuitBreakerSkipsFailedVendorPerModel() {
+  const calls = { primaryDefault: 0, primaryOther: 0, fallback: 0 };
+  const primary = await createMockVendor(async (req, res) => {
+    const body = JSON.parse(await readBody(req));
+    if (body.model === "other-model") {
+      calls.primaryOther += 1;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ choices: [{ message: { content: "primary other model" } }] }));
+      return;
+    }
+
+    calls.primaryDefault += 1;
+    res.writeHead(503, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: { type: "unavailable" } }));
+  });
+  const fallback = await createMockVendor(async (req, res) => {
+    calls.fallback += 1;
+    const body = JSON.parse(await readBody(req));
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content: `fallback ${body.model}` } }] }));
+  });
+
+  try {
+    const port = await findFreePort();
+    const config = baseConfig(port, [
+      {
+        name: "primary",
+        baseUrl: primary.baseUrl,
+        models: [{ id: "model-id" }, { id: "other-model" }],
+      },
+      {
+        name: "fallback",
+        baseUrl: fallback.baseUrl,
+        models: [{ id: "model-id" }, { id: "other-model" }],
+      },
+    ]);
+    const logFile = config.router.logFile;
+
+    await withRouter("circuit-breaker", config, async ({ port: routerPort }) => {
+      for (let requestIndex = 0; requestIndex < 3; requestIndex += 1) {
+        const response = await requestChat(routerPort);
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("x-router-vendor"), "fallback");
+        await response.arrayBuffer();
+      }
+
+      const healthResponse = await fetch(`http://127.0.0.1:${routerPort}/health`, {
+        headers: { authorization: "Bearer test-token" },
+      });
+      const health = await healthResponse.json();
+      assert.equal(health.vendors[0].models[0].circuit.state, "open");
+      assert.equal(health.vendors[0].models[0].circuit.ejectionCount, 1);
+      assert.equal(health.vendors[0].models[1].circuit.state, "closed");
+
+      const otherModelResponse = await requestChat(routerPort, "test-token", "other-model");
+      assert.equal(otherModelResponse.status, 200);
+      assert.equal(otherModelResponse.headers.get("x-router-vendor"), "primary");
+      await otherModelResponse.arrayBuffer();
+    });
+
+    assert.equal(calls.primaryDefault, 2);
+    assert.equal(calls.primaryOther, 1);
+    assert.equal(calls.fallback, 3);
+    const logText = readFileSync(logFile, "utf8");
+    assert.match(logText, /"event":"vendor_circuit_opened"/);
+    assert.match(logText, /"durationMs":10000/);
+    assert.match(logText, /"ejectionCount":1/);
+  } finally {
+    primary.server.close();
+    fallback.server.close();
+  }
+}
+
 async function testLongStreamOutlivesResponseTimeout() {
   const chunks = ["data: one\n\n", "data: two\n\n", "data: three\n\n"];
   const vendor = await createMockVendor(async (req, res) => {
@@ -537,6 +610,7 @@ async function testHealthRedactsVendorBaseUrl() {
   try {
     const port = await findFreePort();
     await withRouter("health-redaction", baseConfig(port, [
+      { name: "disabled", enabled: false, baseUrl: "", models: [] },
       { name: "vendor", baseUrl: vendor.baseUrl, model: "model-id" },
     ]), async ({ port: routerPort }) => {
       const response = await fetch(`http://127.0.0.1:${routerPort}/health`, {
@@ -545,6 +619,7 @@ async function testHealthRedactsVendorBaseUrl() {
       const body = await response.json();
       assert.equal(response.status, 200);
       assert.equal(body.vendorCount, 1);
+      assert.equal(body.vendors[0].priority, 1);
       assert.equal(body.vendors[0].baseUrl, undefined);
     });
   } finally {
@@ -659,6 +734,7 @@ async function testParentDisconnectStopsRouter() {
 
 await testStatusFallback();
 await testTimeoutFallback();
+await testCircuitBreakerSkipsFailedVendorPerModel();
 await testLongStreamOutlivesResponseTimeout();
 await testNoFallbackAfterPartialStream();
 await testClientAbortStopsFallback();

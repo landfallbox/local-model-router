@@ -54,6 +54,7 @@ import {
   getVendorModelsErrorField,
   getVendorModelsLoadMessage,
   getVendorModelsSourceKey,
+  getVendorCircuitSummary,
   parseLogRows,
   validateRouter,
   validateVendor,
@@ -108,6 +109,13 @@ export default function App() {
 
   useEffect(() => {
     void loadState();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refreshHealth({ silent: true, fast: true });
+    }, 5000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -714,6 +722,7 @@ export default function App() {
               />
               <VendorsPage
                 vendors={draft.vendors}
+                vendorHealth={health?.ok ? health.body?.vendors : []}
                 updateVendor={updateVendor}
                 addVendor={addVendor}
                 removeVendor={removeVendor}
@@ -1053,6 +1062,7 @@ function SidebarUpdateButton({ updateState, downloadUpdate, installUpdate, busy 
 
 function VendorsPage({
   vendors,
+  vendorHealth,
   updateVendor,
   addVendor,
   removeVendor,
@@ -1096,6 +1106,7 @@ function VendorsPage({
             <SortableVendorCard
               key={`${vendor.name}-${index}`}
               vendor={vendor}
+              health={vendorHealth?.find((item) => item.priority === index)}
               index={index}
               updateVendor={updateVendor}
               removeVendor={removeVendor}
@@ -1110,7 +1121,7 @@ function VendorsPage({
   );
 }
 
-function SortableVendorCard({ vendor, index, updateVendor, removeVendor, openVendorEditor, busy }) {
+function SortableVendorCard({ vendor, health, index, updateVendor, removeVendor, openVendorEditor, busy }) {
   const {
     attributes,
     listeners,
@@ -1123,6 +1134,7 @@ function SortableVendorCard({ vendor, index, updateVendor, removeVendor, openVen
   const validation = validateVendor(vendor);
   const isEnabled = vendor.enabled !== false && !validation.hasErrors;
   const enabledModels = getVendorModels(vendor).filter((model) => model.enabled !== false);
+  const circuitSummary = getVendorCircuitSummary(health);
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -1172,6 +1184,7 @@ function SortableVendorCard({ vendor, index, updateVendor, removeVendor, openVen
             <span key={model.id}>{model.id}</span>
           ))}
           {enabledModels.length > 3 && <span>{enabledModels.length} models</span>}
+          {circuitSummary && <span className={`summary-key ${circuitSummary.tone}`}>{circuitSummary.label}</span>}
           {validation.errors.map((message) => (
             <span className="summary-key danger" key={message}>{message}</span>
           ))}

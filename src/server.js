@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createLogger } from "./logger.js";
 import { loadRuntimeConfig, runtimeRoot } from "./runtime-config.js";
+import { VendorCircuitBreaker } from "./vendor-circuit-breaker.js";
 
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -196,7 +197,7 @@ async function pipeUpstream(upstream, res) {
   await pipeline(Readable.fromWeb(upstream.body), res);
 }
 
-async function handleChat(req, res, config, logger) {
+async function handleChat(req, res, config, logger, circuitBreaker) {
   const requestId = randomUUID();
   const startedAt = Date.now();
   const requestBody = await readJsonBody(req, config.router.maxBodyBytes);
@@ -215,7 +216,13 @@ async function handleChat(req, res, config, logger) {
     return;
   }
 
-  for (const vendor of vendors) {
+  const candidates = circuitBreaker.candidates(vendors, requestedModel);
+  for (const { vendor, forced } of candidates) {
+    const circuitPermission = circuitBreaker.acquire(vendor, requestedModel, { forced });
+    if (!circuitPermission) {
+      continue;
+    }
+
     const vendorStartedAt = Date.now();
     const timeout = createTimeoutSignal(vendor.timeoutMs);
     const unlinkClientAbort = linkClientAbort(req, res, timeout.abort);
@@ -226,6 +233,8 @@ async function handleChat(req, res, config, logger) {
         vendor: vendor.name,
         model: requestedModel,
         stream: requestBody.stream === true,
+        circuitProbe: circuitPermission.probe,
+        circuitForcedProbe: circuitPermission.forced,
       });
 
       const upstream = await callVendor(vendor, requestBody, timeout.signal);
@@ -250,9 +259,20 @@ async function handleChat(req, res, config, logger) {
         });
 
         if (shouldFallback(upstream.status, config)) {
+          recordCircuitFailure(circuitBreaker, circuitPermission, logger, {
+            requestId,
+            vendor: vendor.name,
+            model: requestedModel,
+            reason: `http_${upstream.status}`,
+          });
           continue;
         }
 
+        recordCircuitSuccess(circuitBreaker, circuitPermission, logger, {
+          requestId,
+          vendor: vendor.name,
+          model: requestedModel,
+        });
         res.statusCode = upstream.status;
         res.setHeader("content-type", upstream.headers.get("content-type") || "application/json; charset=utf-8");
         res.setHeader("x-router-vendor", vendor.name);
@@ -269,6 +289,11 @@ async function handleChat(req, res, config, logger) {
         totalElapsedMs: Date.now() - startedAt,
       });
 
+      recordCircuitSuccess(circuitBreaker, circuitPermission, logger, {
+        requestId,
+        vendor: vendor.name,
+        model: requestedModel,
+      });
       res.statusCode = upstream.status;
       copyUpstreamHeaders(upstream, res, vendor.name);
       await pipeUpstream(upstream, res);
@@ -288,15 +313,24 @@ async function handleChat(req, res, config, logger) {
       });
 
       if (req.aborted || res.destroyed) {
+        circuitBreaker.release(circuitPermission);
         return;
       }
 
       // Once response bytes are committed, another vendor would corrupt the stream
       // and may duplicate a billable upstream request.
       if (res.headersSent) {
+        circuitBreaker.release(circuitPermission);
         res.destroy(error);
         return;
       }
+
+      recordCircuitFailure(circuitBreaker, circuitPermission, logger, {
+        requestId,
+        vendor: vendor.name,
+        model: requestedModel,
+        reason: error.name === "AbortError" ? "timeout" : "network_error",
+      });
     } finally {
       unlinkClientAbort();
       timeout.cancel();
@@ -317,6 +351,28 @@ async function handleChat(req, res, config, logger) {
       failures,
     },
   });
+}
+
+function recordCircuitFailure(circuitBreaker, permission, logger, context) {
+  const transition = circuitBreaker.recordFailure(permission);
+  if (transition.opened) {
+    logger.warn("vendor_circuit_opened", {
+      ...context,
+      durationMs: transition.durationMs,
+      ejectionCount: transition.ejectionCount,
+      retryAt: transition.retryAt,
+    });
+  }
+}
+
+function recordCircuitSuccess(circuitBreaker, permission, logger, context) {
+  const transition = circuitBreaker.recordSuccess(permission);
+  if (transition.closed) {
+    logger.info("vendor_circuit_closed", {
+      ...context,
+      ejectionCount: transition.ejectionCount,
+    });
+  }
 }
 
 function getVendorsForModel(vendors, requestedModel) {
@@ -341,7 +397,7 @@ function handleModels(_req, res, config) {
   });
 }
 
-function handleHealth(_req, res, config) {
+function handleHealth(_req, res, config, circuitBreaker) {
   sendJson(res, 200, {
     ok: true,
     instanceId: process.env.LOCAL_MODEL_ROUTER_INSTANCE_ID || "",
@@ -349,16 +405,18 @@ function handleHealth(_req, res, config) {
     vendorCount: config.vendors.length,
     vendors: config.vendors.map((vendor) => ({
       name: vendor.name,
+      priority: vendor.priority,
       models: vendor.models.map((model) => ({
         id: model.id,
         enabled: model.enabled !== false,
+        circuit: circuitBreaker.snapshot(vendor, model.id),
       })),
       enabled: vendor.enabled !== false,
     })),
   });
 }
 
-async function handleRequest(req, res, config, logger) {
+async function handleRequest(req, res, config, logger, circuitBreaker) {
   const path = getRequestPath(req);
 
   try {
@@ -373,7 +431,7 @@ async function handleRequest(req, res, config, logger) {
     }
 
     if (req.method === "GET" && path === "/health") {
-      handleHealth(req, res, config);
+      handleHealth(req, res, config, circuitBreaker);
       return;
     }
 
@@ -383,7 +441,7 @@ async function handleRequest(req, res, config, logger) {
     }
 
     if (req.method === "POST" && path === "/v1/chat/completions") {
-      await handleChat(req, res, config, logger);
+      await handleChat(req, res, config, logger, circuitBreaker);
       return;
     }
 
@@ -417,10 +475,11 @@ async function handleRequest(req, res, config, logger) {
 function main() {
   const { config, configPath } = loadRuntimeConfig();
   const logger = createLogger(config, runtimeRoot);
+  const circuitBreaker = new VendorCircuitBreaker();
   let stopping = false;
 
   const server = http.createServer((req, res) => {
-    void handleRequest(req, res, config, logger);
+    void handleRequest(req, res, config, logger, circuitBreaker);
   });
 
   server.listen(config.router.port, config.router.host, () => {

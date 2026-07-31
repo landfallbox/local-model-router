@@ -26,6 +26,7 @@ export function loadRuntimeConfig() {
   }
 
   config.vendors = config.vendors
+    .map((vendor, priority) => ({ ...vendor, priority }))
     .filter((vendor) => vendor.enabled !== false)
     .map((vendor) => ({
       ...vendor,

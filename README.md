@@ -99,6 +99,8 @@ Example client entry:
 
 - Fallback is enabled for request timeouts, network failures before a response, `408`, `409`, `425`, `429`, `500`, `502`, `503`, `504`, and other `5xx` responses.
 - Fallback is not enabled by default for `400`, `401`, `403`, or `404`, because those usually indicate configuration, authentication, or request-format problems.
+- Circuit breaking is tracked independently for each vendor and model. Two consecutive fallback-eligible failures open the circuit for 10 seconds. Repeated failed probes increase that duration linearly up to 60 seconds; one successful probe restores the configured vendor priority.
+- When every matching vendor has an open circuit, the Router probes the vendor whose circuit expires first instead of immediately reporting that no vendor is available.
 - If an upstream fails before streaming starts, another vendor can be tried. Once partial output has reached the client, the router cannot switch vendors without corrupting the stream.
 - Packaged builds store configuration in Electron's platform user-data directory:
   - Windows: `%APPDATA%\Local Model Router\config.json`.
@@ -109,6 +111,7 @@ Example client entry:
 The main runtime boundaries are:
 
 - `src/server.js`: HTTP routing, upstream failover, and stream ownership.
+- `src/vendor-circuit-breaker.js`: per-vendor, per-model passive failure tracking and half-open recovery.
 - `src/runtime-config.js`: file and environment configuration for the Router process.
 - `src/logger.js`: structured logging and recursive secret redaction.
 - `gui/electron/main.js`: Electron lifecycle, tray, IPC registration, and orchestration.

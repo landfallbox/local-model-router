@@ -92,6 +92,26 @@ export function endpointFromDraft(draft) {
   return `http://${host}:${port}/v1/chat/completions`;
 }
 
+export function getVendorCircuitSummary(vendorHealth) {
+  const models = Array.isArray(vendorHealth?.models) ? vendorHealth.models : [];
+  const openModels = models.filter((model) => model?.circuit?.state === "open");
+  const recoveringModels = models.filter((model) => model?.circuit?.state === "half-open");
+
+  if (openModels.length) {
+    return {
+      tone: "danger",
+      label: openModels.length === 1 ? `Circuit open · ${openModels[0].id}` : `Circuit open · ${openModels.length} models`,
+    };
+  }
+  if (recoveringModels.length) {
+    return {
+      tone: "warning",
+      label: recoveringModels.length === 1 ? `Recovering · ${recoveringModels[0].id}` : `Recovering · ${recoveringModels.length} models`,
+    };
+  }
+  return null;
+}
+
 export function validateVendor(vendor) {
   const errors = [];
   const warnings = [];
