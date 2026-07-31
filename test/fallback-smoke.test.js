@@ -208,17 +208,37 @@ async function requestResponses(port, token = "test-token", model = "model-id") 
   });
 }
 
-async function withRouter(name, config, test) {
-  const configPath = writeConfig(name, config);
-  const router = await startRouter(configPath);
-  const port = config.router.port;
+async function withRouter(name, config, test, maxStartAttempts = 3) {
+  let lastError;
 
-  try {
-    await waitForHealth(port, config.router.apiKey);
-    await test({ port, configPath, router });
-  } finally {
-    await stopRouter(router);
+  for (let attempt = 1; attempt <= maxStartAttempts; attempt += 1) {
+    const port = attempt === 1 ? config.router.port : await findFreePort();
+    const attemptConfig = {
+      ...config,
+      router: { ...config.router, port },
+    };
+    const configPath = writeConfig(name, attemptConfig);
+    const router = await startRouter(configPath);
+
+    try {
+      try {
+        await waitForHealth(port, attemptConfig.router.apiKey);
+      } catch (error) {
+        lastError = error;
+        if (attempt === maxStartAttempts) {
+          throw error;
+        }
+        continue;
+      }
+
+      await test({ port, configPath, router, config: attemptConfig });
+      return;
+    } finally {
+      await stopRouter(router);
+    }
   }
+
+  throw lastError;
 }
 
 function baseConfig(port, vendors, overrides = {}) {
