@@ -93,7 +93,7 @@ async function stopRouter(router) {
   await once(router, "exit");
 }
 
-async function reloadRouter(router, timeoutMs = 10000) {
+async function reloadRouter(router, timeoutMs = 3000) {
   const requestId = `reload-${Date.now()}-${Math.random()}`;
 
   return new Promise((resolve, reject) => {
@@ -256,37 +256,17 @@ async function requestResponses(port, token = "test-token", model = "model-id") 
   });
 }
 
-async function withRouter(name, config, test, maxStartAttempts = 3) {
-  let lastError;
+async function withRouter(name, config, test) {
+  const configPath = writeConfig(name, config);
+  const router = await startRouter(configPath);
+  const port = config.router.port;
 
-  for (let attempt = 1; attempt <= maxStartAttempts; attempt += 1) {
-    const port = attempt === 1 ? config.router.port : await findFreePort();
-    const attemptConfig = {
-      ...config,
-      router: { ...config.router, port },
-    };
-    const configPath = writeConfig(name, attemptConfig);
-    const router = await startRouter(configPath);
-
-    try {
-      try {
-        await waitForHealth(port, attemptConfig.router.apiKey);
-      } catch (error) {
-        lastError = error;
-        if (attempt === maxStartAttempts) {
-          throw error;
-        }
-        continue;
-      }
-
-      await test({ port, configPath, router, config: attemptConfig });
-      return;
-    } finally {
-      await stopRouter(router);
-    }
+  try {
+    await waitForHealth(port, config.router.apiKey);
+    await test({ port, configPath, router });
+  } finally {
+    await stopRouter(router);
   }
-
-  throw lastError;
 }
 
 function baseConfig(port, vendors, overrides = {}) {
@@ -400,7 +380,7 @@ async function testTimeoutFallback() {
   const slow = await createMockVendor(async (req, res) => {
     calls.slow += 1;
     await readBody(req);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 900));
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ choices: [{ message: { content: "late" } }] }));
   });
@@ -416,12 +396,13 @@ async function testTimeoutFallback() {
     await withRouter("timeout-fallback", baseConfig(port, [
       { name: "slow", baseUrl: slow.baseUrl, model: "model-id" },
       { name: "fast", baseUrl: fast.baseUrl, model: "model-id" },
-    ], { router: { requestTimeoutMs: 1000 } }), async ({ port: routerPort }) => {
+    ], { router: { requestTimeoutMs: 200 } }), async ({ port: routerPort }) => {
       const response = await requestChat(routerPort);
       const body = await response.json();
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("x-router-vendor"), "fast");
       assert.equal(body.choices[0].message.content, "fast");
+      assert.equal(calls.slow, 1);
       assert.equal(calls.fast, 1);
     });
   } finally {
