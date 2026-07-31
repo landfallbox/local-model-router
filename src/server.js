@@ -24,6 +24,27 @@ const HOP_BY_HOP_HEADERS = new Set([
 const RESTART_REQUIRED_FIELDS = ["router.host", "router.port", "router.logFile"];
 const CONFIG_WATCH_DEBOUNCE_MS = 200;
 
+function sendParentMessage(message) {
+  return new Promise((resolve, reject) => {
+    if (typeof process.send !== "function" || !process.connected) {
+      reject(new Error("Parent IPC channel is disconnected."));
+      return;
+    }
+
+    try {
+      process.send(message, (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
@@ -670,18 +691,35 @@ function main() {
         return;
       }
       if (message?.type === "reload-config" && message.requestId) {
-        void reloadRuntimeConfig("parent-request")
-          .then((result) => process.send?.({
-            type: "config-reloaded",
-            requestId: message.requestId,
-            ...result,
-          }))
-          .catch((error) => process.send?.({
-            type: "config-reload-failed",
-            requestId: message.requestId,
-            ok: false,
-            error: error.message || String(error),
-          }));
+        void (async () => {
+          let response;
+          try {
+            const result = await reloadRuntimeConfig("parent-request");
+            response = {
+              type: "config-reloaded",
+              requestId: message.requestId,
+              ...result,
+            };
+          } catch (error) {
+            response = {
+              type: "config-reload-failed",
+              requestId: message.requestId,
+              ok: false,
+              error: error.message || String(error),
+            };
+          }
+
+          try {
+            await sendParentMessage(response);
+          } catch (error) {
+            logger.error("config_reload_response_failed", {
+              requestId: message.requestId,
+              responseType: response.type,
+              errorName: error.name,
+              errorMessage: error.message,
+            });
+          }
+        })();
       }
     });
     process.on("disconnect", () => stopRouter("parent_disconnect"));

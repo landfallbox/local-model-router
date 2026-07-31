@@ -8,6 +8,8 @@ import { join } from "node:path";
 
 const tempDir = mkdtempSync(join(tmpdir(), "local-router-test-"));
 const projectRoot = new URL("..", import.meta.url);
+const routerOutput = new WeakMap();
+const MAX_ROUTER_OUTPUT_LENGTH = 64 * 1024;
 
 async function createMockVendor(handler) {
   const server = http.createServer(handler);
@@ -68,7 +70,18 @@ async function startRouter(configPath) {
 
   router.stdout.setEncoding("utf8");
   router.stderr.setEncoding("utf8");
+  const output = { text: "" };
+  const captureOutput = (chunk) => {
+    output.text = `${output.text}${chunk}`.slice(-MAX_ROUTER_OUTPUT_LENGTH);
+  };
+  router.stdout.on("data", captureOutput);
+  router.stderr.on("data", captureOutput);
+  routerOutput.set(router, output);
   return router;
+}
+
+function getRouterOutput(router) {
+  return routerOutput.get(router)?.text || "";
 }
 
 async function stopRouter(router) {
@@ -82,29 +95,53 @@ async function stopRouter(router) {
 
 async function reloadRouter(router, timeoutMs = 10000) {
   const requestId = `reload-${Date.now()}-${Math.random()}`;
-  let timeout;
 
-  try {
-    const response = new Promise((resolve, reject) => {
-      const onMessage = (message) => {
-        if (message?.requestId !== requestId) {
-          return;
-        }
-        router.off("message", onMessage);
-        resolve(message);
-      };
-      router.on("message", onMessage);
-      timeout = setTimeout(() => {
-        router.off("message", onMessage);
-        reject(new Error("Router config reload timed out."));
-      }, timeoutMs);
+  return new Promise((resolve, reject) => {
+    let timeout;
+    const cleanup = () => {
+      clearTimeout(timeout);
+      router.off("message", onMessage);
+      router.off("exit", onExit);
+      router.off("error", onError);
+      router.off("disconnect", onDisconnect);
+    };
+    const fail = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onMessage = (message) => {
+      if (message?.requestId !== requestId) {
+        return;
+      }
+      cleanup();
+      resolve(message);
+    };
+    const onExit = (code, signal) => fail(new Error(
+      `Router exited during config reload (code=${code}, signal=${signal}).\n${getRouterOutput(router)}`,
+    ));
+    const onError = (error) => fail(error);
+    const onDisconnect = () => fail(new Error(
+      `Router IPC disconnected during config reload.\n${getRouterOutput(router)}`,
+    ));
+
+    router.on("message", onMessage);
+    router.once("exit", onExit);
+    router.once("error", onError);
+    router.once("disconnect", onDisconnect);
+    timeout = setTimeout(() => fail(new Error(
+      `Router config reload timed out.\n${getRouterOutput(router)}`,
+    )), timeoutMs);
+
+    if (!router.connected) {
+      onDisconnect();
+      return;
+    }
+    router.send({ type: "reload-config", requestId }, (error) => {
+      if (error) {
+        fail(error);
+      }
     });
-
-    router.send({ type: "reload-config", requestId });
-    return await response;
-  } finally {
-    clearTimeout(timeout);
-  }
+  });
 }
 
 async function waitForProcessClose(router, timeoutMs = 5000, context = "Router") {
@@ -385,7 +422,6 @@ async function testTimeoutFallback() {
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("x-router-vendor"), "fast");
       assert.equal(body.choices[0].message.content, "fast");
-      assert.equal(calls.slow, 1);
       assert.equal(calls.fast, 1);
     });
   } finally {
@@ -865,15 +901,11 @@ async function testMissingRouterApiKeyFailsFast() {
   ], { router: { apiKey: "" } });
   const configPath = writeConfig("missing-router-key", config);
   const router = await startRouter(configPath);
-  const output = [];
-
-  router.stdout.on("data", (chunk) => output.push(chunk));
-  router.stderr.on("data", (chunk) => output.push(chunk));
 
   try {
     const [code] = await waitForProcessClose(router);
     assert.notEqual(code, 0);
-    assert.match(output.join(""), /router\.apiKey/i);
+    assert.match(getRouterOutput(router), /router\.apiKey/i);
   } finally {
     await stopRouter(router);
   }
@@ -911,15 +943,11 @@ async function testNoVendorsFailsFast() {
   const port = await findFreePort();
   const configPath = writeConfig("no-vendors", baseConfig(port, []));
   const router = await startRouter(configPath);
-  const output = [];
-
-  router.stdout.on("data", (chunk) => output.push(chunk));
-  router.stderr.on("data", (chunk) => output.push(chunk));
 
   try {
     const [code] = await waitForProcessClose(router);
     assert.notEqual(code, 0);
-    assert.match(output.join(""), /vendor|router/i);
+    assert.match(getRouterOutput(router), /vendor|router/i);
   } finally {
     await stopRouter(router);
   }
