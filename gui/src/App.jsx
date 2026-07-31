@@ -613,7 +613,7 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-title">Local Model Router Dev</div>
+          <div className="brand-title">{appName}</div>
           <div className="brand-meta-row">
             <div className="brand-version">{appVersion ? `v${appVersion}` : ""}</div>
             <SidebarUpdateButton
