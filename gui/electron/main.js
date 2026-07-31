@@ -33,6 +33,7 @@ let isQuitting = false;
 let closePromptActive = false;
 let routerLifecycleQueue = Promise.resolve();
 let managedRouterChild = null;
+const pendingRouterReloads = new Map();
 const windowsToShowOnReady = new WeakSet();
 
 function resolveAppDir() {
@@ -298,7 +299,77 @@ async function saveConfig(_event, payload) {
   const revision = payload?.revision || "";
   const saved = await writeConfigStore(paths.configPath, config, revision);
   applyPackagedLoginStartup(saved.config.app.startAtLogin);
-  return { ...saved, paths, endpoint: getEndpoint(saved.config) };
+  const reload = await reloadManagedRouterAfterSave(paths);
+  return { ...saved, paths, endpoint: getEndpoint(saved.config), ...reload };
+}
+
+async function reloadManagedRouterAfterSave(paths) {
+  const child = getRunningManagedRouterChild();
+  if (child) {
+    try {
+      return await requestRouterConfigReload(child);
+    } catch (error) {
+      return {
+        applied: false,
+        restartRequired: true,
+        restartFields: [],
+        reloadError: error.message || String(error),
+      };
+    }
+  }
+
+  const metadata = await getManagedRouterMetadata(paths);
+  if (metadata) {
+    return {
+      applied: false,
+      restartRequired: true,
+      restartFields: [],
+      reloadError: "The running Router is not connected to this app instance. Restart it to apply the saved settings.",
+    };
+  }
+
+  return { applied: false, restartRequired: false, restartFields: [], reloadError: "" };
+}
+
+function requestRouterConfigReload(child, timeoutMs = 3000) {
+  const requestId = randomUUID();
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    const timeout = setTimeout(() => {
+      pendingRouterReloads.delete(requestId);
+      rejectPromise(new Error("Router config reload timed out."));
+    }, timeoutMs);
+    pendingRouterReloads.set(requestId, {
+      resolve: (message) => {
+        clearTimeout(timeout);
+        resolvePromise({
+          applied: message.applied === true,
+          restartRequired: message.restartRequired === true,
+          restartFields: Array.isArray(message.restartFields) ? message.restartFields : [],
+          reloadError: "",
+        });
+      },
+      reject: (error) => {
+        clearTimeout(timeout);
+        rejectPromise(error);
+      },
+    });
+
+    try {
+      child.send({ type: "reload-config", requestId }, (error) => {
+        if (!error) {
+          return;
+        }
+        const pending = pendingRouterReloads.get(requestId);
+        pendingRouterReloads.delete(requestId);
+        pending?.reject(error);
+      });
+    } catch (error) {
+      pendingRouterReloads.delete(requestId);
+      clearTimeout(timeout);
+      rejectPromise(error);
+    }
+  });
 }
 
 async function countRouterProcesses(paths = getPaths()) {
@@ -439,9 +510,29 @@ async function startRouterInternal() {
 function trackManagedRouterChild(child, paths, instanceId) {
   managedRouterChild = child;
 
+  child.on("message", (message) => {
+    if (!message?.requestId || !["config-reloaded", "config-reload-failed"].includes(message.type)) {
+      return;
+    }
+    const pending = pendingRouterReloads.get(message.requestId);
+    if (!pending) {
+      return;
+    }
+    pendingRouterReloads.delete(message.requestId);
+    if (message.type === "config-reloaded") {
+      pending.resolve(message);
+    } else {
+      pending.reject(new Error(message.error || "Router config reload failed."));
+    }
+  });
+
   const clearManagedChild = () => {
     if (managedRouterChild === child) {
       managedRouterChild = null;
+    }
+    for (const [requestId, pending] of pendingRouterReloads) {
+      pendingRouterReloads.delete(requestId);
+      pending.reject(new Error("Router exited before config reload completed."));
     }
     void removeRouterPidForInstance(paths, instanceId);
   };

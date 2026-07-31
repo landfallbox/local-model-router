@@ -101,6 +101,9 @@ Example client entry:
 - Fallback is not enabled by default for `400`, `401`, `403`, or `404`, because those usually indicate configuration, authentication, or request-format problems.
 - Circuit breaking is tracked independently for each vendor and model. Two consecutive fallback-eligible failures open the circuit for 10 seconds. Repeated failed probes increase that duration linearly up to 60 seconds; one successful probe restores the configured vendor priority.
 - When every matching vendor has an open circuit, the Router probes the vendor whose circuit expires first instead of immediately reporting that no vendor is available.
+- Saved Router credentials, limits, fallback settings, vendors, priorities, and models are applied to new requests without restarting the Router. Requests already in progress continue with the configuration snapshot they started with.
+- Changes to `router.host`, `router.port`, or `router.logFile` require a Router restart. Other changes in the same save are still applied immediately.
+- Manual edits to `config.json` are detected automatically. Invalid or incomplete edits are logged and ignored, so the Router keeps serving with its last valid configuration.
 - If an upstream fails before streaming starts, another vendor can be tried. Once partial output has reached the client, the router cannot switch vendors without corrupting the stream.
 - Packaged builds store configuration in Electron's platform user-data directory:
   - Windows: `%APPDATA%\Local Model Router\config.json`.

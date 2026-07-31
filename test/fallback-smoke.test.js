@@ -69,6 +69,33 @@ async function stopRouter(router) {
   await once(router, "exit");
 }
 
+async function reloadRouter(router, timeoutMs = 3000) {
+  const requestId = `reload-${Date.now()}-${Math.random()}`;
+  let timeout;
+
+  try {
+    const response = new Promise((resolve, reject) => {
+      const onMessage = (message) => {
+        if (message?.requestId !== requestId) {
+          return;
+        }
+        router.off("message", onMessage);
+        resolve(message);
+      };
+      router.on("message", onMessage);
+      timeout = setTimeout(() => {
+        router.off("message", onMessage);
+        reject(new Error("Router config reload timed out."));
+      }, timeoutMs);
+    });
+
+    router.send({ type: "reload-config", requestId });
+    return await response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function waitForProcessClose(router, timeoutMs = 5000, context = "Router") {
   let timeout;
 
@@ -123,6 +150,23 @@ async function waitForHealth(port, token = "test-token") {
   }
 
   throw lastError || new Error("Router did not become healthy.");
+}
+
+async function waitForAuthorizedHealth(port, token, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/health`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      await response.arrayBuffer();
+      if (response.ok) {
+        return;
+      }
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Router did not accept the reloaded token in time: ${token}`);
 }
 
 async function requestChat(port, token = "test-token", model = "model-id") {
@@ -317,6 +361,89 @@ async function testCircuitBreakerSkipsFailedVendorPerModel() {
   } finally {
     primary.server.close();
     fallback.server.close();
+  }
+}
+
+async function testRuntimeConfigReload() {
+  const calls = { primary: 0, secondary: 0 };
+  const primary = await createMockVendor(async (req, res) => {
+    calls.primary += 1;
+    await readBody(req);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content: "primary" } }] }));
+  });
+  const secondary = await createMockVendor(async (req, res) => {
+    calls.secondary += 1;
+    await readBody(req);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content: "secondary" } }] }));
+  });
+
+  try {
+    const port = await findFreePort();
+    const nextPort = await findFreePort();
+    const initialConfig = baseConfig(port, [
+      { name: "primary", baseUrl: primary.baseUrl, model: "model-id" },
+      { name: "secondary", baseUrl: secondary.baseUrl, model: "model-id" },
+    ]);
+
+    await withRouter("runtime-reload", initialConfig, async ({ port: routerPort, configPath, router }) => {
+      const initialResponse = await requestChat(routerPort);
+      assert.equal(initialResponse.headers.get("x-router-vendor"), "primary");
+      await initialResponse.arrayBuffer();
+
+      const nextConfig = {
+        ...initialConfig,
+        router: {
+          ...initialConfig.router,
+          port: nextPort,
+          apiKey: "reloaded-token",
+        },
+        vendors: [...initialConfig.vendors].reverse(),
+      };
+      writeFileSync(configPath, JSON.stringify(nextConfig, null, 2));
+      const reloadResult = await reloadRouter(router);
+      assert.equal(reloadResult.ok, true);
+      assert.equal(reloadResult.restartRequired, true);
+      assert.deepEqual(reloadResult.restartFields, ["router.port"]);
+
+      const oldKeyResponse = await requestChat(routerPort);
+      assert.equal(oldKeyResponse.status, 401);
+      await oldKeyResponse.arrayBuffer();
+
+      const reloadedResponse = await requestChat(routerPort, "reloaded-token");
+      assert.equal(reloadedResponse.status, 200);
+      assert.equal(reloadedResponse.headers.get("x-router-vendor"), "secondary");
+      await reloadedResponse.arrayBuffer();
+
+      const healthResponse = await fetch(`http://127.0.0.1:${routerPort}/health`, {
+        headers: { authorization: "Bearer reloaded-token" },
+      });
+      const health = await healthResponse.json();
+      assert.equal(health.restartRequired, true);
+      assert.deepEqual(health.restartFields, ["router.port"]);
+      await assert.rejects(() => fetch(`http://127.0.0.1:${nextPort}/health`));
+
+      const watchedConfig = {
+        ...nextConfig,
+        router: { ...nextConfig.router, apiKey: "watched-token" },
+      };
+      writeFileSync(configPath, JSON.stringify(watchedConfig, null, 2));
+      await waitForAuthorizedHealth(routerPort, "watched-token");
+
+      writeFileSync(configPath, "{ invalid json");
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      const retainedHealth = await fetch(`http://127.0.0.1:${routerPort}/health`, {
+        headers: { authorization: "Bearer watched-token" },
+      });
+      assert.equal(retainedHealth.status, 200);
+    });
+
+    assert.equal(calls.primary, 1);
+    assert.equal(calls.secondary, 1);
+  } finally {
+    primary.server.close();
+    secondary.server.close();
   }
 }
 
@@ -735,6 +862,7 @@ async function testParentDisconnectStopsRouter() {
 await testStatusFallback();
 await testTimeoutFallback();
 await testCircuitBreakerSkipsFailedVendorPerModel();
+await testRuntimeConfigReload();
 await testLongStreamOutlivesResponseTimeout();
 await testNoFallbackAfterPartialStream();
 await testClientAbortStopsFallback();

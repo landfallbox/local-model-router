@@ -49,6 +49,13 @@ const configResultSchema = z.object({
   endpoint: z.string().url(),
 }).passthrough();
 
+const configSaveResultSchema = configResultSchema.extend({
+  applied: z.boolean(),
+  restartRequired: z.boolean(),
+  restartFields: z.array(z.string()),
+  reloadError: z.string(),
+});
+
 const vendorRequestSchema = z.object({
   baseUrl: z.string(),
   authentication: z.enum(["none", "api-key"]).optional(),
@@ -78,7 +85,7 @@ export const ipcContracts = Object.freeze({
     appVersion: z.string(),
     isDevelopmentRuntime: z.boolean(),
   })),
-  "config:save": contract(z.tuple([z.object({ config: configSchema, revision: z.string() })]), configResultSchema),
+  "config:save": contract(z.tuple([z.object({ config: configSchema, revision: z.string() })]), configSaveResultSchema),
   "vendor:listModels": contract(z.tuple([vendorRequestSchema]), z.object({ models: z.array(z.string()), url: z.string().url() })),
   "router:start": contract(emptyRequest, routerResultSchema),
   "router:stop": contract(emptyRequest, routerResultSchema),

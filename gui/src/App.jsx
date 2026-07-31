@@ -265,10 +265,8 @@ export default function App() {
     const savedDraft = toDraft(result.config);
     setConfigRevision(result.revision || "");
     setPersistedDraft(savedDraft);
-    if (routerActive) {
-      setRestartRequired(true);
-    }
-    return savedDraft;
+    setRestartRequired(result.restartRequired === true || Boolean(result.reloadError));
+    return { savedDraft, saveResult: result };
   }
 
   async function saveRouter() {
@@ -278,7 +276,7 @@ export default function App() {
     }
 
     await run("saveRouter", async () => {
-      const savedDraft = await writeConfig({
+      const { savedDraft, saveResult } = await writeConfig({
         ...persistedDraft,
         router: { ...draft.router },
       });
@@ -286,16 +284,16 @@ export default function App() {
         ...current,
         router: savedDraft.router,
       }));
-      setToast(routerActive ? "Router settings saved. Restart Router to apply changes." : "Router settings saved.");
+      setToast(configSaveMessage(saveResult, "Router settings saved."));
     });
   }
 
   async function persistVendorList(vendors, message) {
     try {
-      const savedDraft = await writeConfig({ ...persistedDraft, vendors });
+      const { savedDraft, saveResult } = await writeConfig({ ...persistedDraft, vendors });
       setDraft((current) => ({ ...current, vendors: savedDraft.vendors }));
       if (message) {
-        setToast(message);
+        setToast(configSaveMessage(saveResult, message));
       }
     } catch (error) {
       setDraft((current) => ({ ...current, vendors: persistedDraft.vendors }));
@@ -569,7 +567,7 @@ export default function App() {
           ? [...persistedDraft.vendors, savedVendor]
           : persistedDraft.vendors.map((vendor, index) => (index === vendorEditorIndex ? savedVendor : vendor)),
       };
-      const savedDraft = await writeConfig(nextDraft);
+      const { savedDraft, saveResult } = await writeConfig(nextDraft);
       const persistedVendor = cloneVendor(savedDraft.vendors[savedIndex]);
 
       setDraft((current) => ({ ...current, vendors: savedDraft.vendors }));
@@ -577,7 +575,7 @@ export default function App() {
       setVendorEditorDraft(persistedVendor);
       setVendorEditorOriginal(cloneVendor(persistedVendor));
       setVendorEditorIsNew(false);
-      setToast("Vendor saved to config.json.");
+      setToast(configSaveMessage(saveResult, "Vendor saved to config.json."));
     });
   }
 
@@ -866,6 +864,22 @@ function getStatus(health) {
     tone: "neutral",
     detail: health.error || "",
   };
+}
+
+function configSaveMessage(result, savedMessage) {
+  if (result?.reloadError) {
+    return `Settings saved, but Router could not reload them: ${result.reloadError}`;
+  }
+  if (result?.restartRequired) {
+    const fields = Array.isArray(result.restartFields) && result.restartFields.length
+      ? ` (${result.restartFields.join(", ")})`
+      : "";
+    return `Settings saved. Restart Router to apply all changes${fields}.`;
+  }
+  if (result?.applied) {
+    return "Settings saved and applied.";
+  }
+  return savedMessage;
 }
 
 function eyebrowForPage(page) {

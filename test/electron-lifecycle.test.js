@@ -118,6 +118,28 @@ async function runTest() {
     return isProcessRunning(routerPid);
   }, "Electron did not start a managed Router process.");
 
+  const loaded = await window.evaluate(() => window.localModelRouter.loadConfig());
+  const reloadedToken = "electron-reloaded-token";
+  const saveResult = await window.evaluate(({ config, revision, token }) => window.localModelRouter.saveConfig({
+    config: {
+      ...config,
+      router: { ...config.router, apiKey: token },
+    },
+    revision,
+  }), { config: loaded.config, revision: loaded.revision, token: reloadedToken });
+  assert.equal(saveResult.applied, true);
+  assert.equal(saveResult.restartRequired, false);
+  assert.equal(saveResult.reloadError, "");
+
+  const oldTokenHealth = await fetch(`http://127.0.0.1:${port}/health`, {
+    headers: { authorization: "Bearer electron-lifecycle-token" },
+  });
+  assert.equal(oldTokenHealth.status, 401);
+  const newTokenHealth = await fetch(`http://127.0.0.1:${port}/health`, {
+    headers: { authorization: `Bearer ${reloadedToken}` },
+  });
+  assert.equal(newTokenHealth.status, 200);
+
   await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
   await waitFor(
     () => electronApp.evaluate(({ BrowserWindow }) => !BrowserWindow.getAllWindows()[0].isVisible()),

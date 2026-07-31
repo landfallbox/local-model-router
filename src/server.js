@@ -1,5 +1,7 @@
 import http from "node:http";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { watch } from "node:fs";
+import { basename, dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createLogger } from "./logger.js";
@@ -18,6 +20,8 @@ const HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
 ]);
+const RESTART_REQUIRED_FIELDS = ["router.host", "router.port", "router.logFile"];
+const CONFIG_WATCH_DEBOUNCE_MS = 200;
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.writeHead(statusCode, {
@@ -25,6 +29,33 @@ function sendJson(res, statusCode, body, extraHeaders = {}) {
     ...extraHeaders,
   });
   res.end(JSON.stringify(body));
+}
+
+function runtimeConfigRevision(config) {
+  const runtimeConfig = {
+    router: config.router,
+    model: config.model,
+    vendors: config.vendors,
+  };
+  return createHash("sha256").update(JSON.stringify(runtimeConfig)).digest("hex");
+}
+
+function getConfigValue(config, path) {
+  return path.split(".").reduce((value, key) => value?.[key], config);
+}
+
+function prepareReloadedConfig(currentConfig, nextConfig) {
+  const restartFields = RESTART_REQUIRED_FIELDS.filter(
+    (field) => getConfigValue(currentConfig, field) !== getConfigValue(nextConfig, field),
+  );
+  const effectiveConfig = structuredClone(nextConfig);
+
+  for (const field of restartFields) {
+    const [, key] = field.split(".");
+    effectiveConfig.router[key] = currentConfig.router[key];
+  }
+
+  return { effectiveConfig, restartFields };
 }
 
 function getRequestPath(req) {
@@ -397,10 +428,14 @@ function handleModels(_req, res, config) {
   });
 }
 
-function handleHealth(_req, res, config, circuitBreaker) {
+function handleHealth(_req, res, runtime) {
+  const { config, circuitBreaker } = runtime;
   sendJson(res, 200, {
     ok: true,
     instanceId: process.env.LOCAL_MODEL_ROUTER_INSTANCE_ID || "",
+    configRevision: runtime.configRevision,
+    restartRequired: runtime.restartFields.length > 0,
+    restartFields: runtime.restartFields,
     model: config.model.id,
     vendorCount: config.vendors.length,
     vendors: config.vendors.map((vendor) => ({
@@ -416,7 +451,8 @@ function handleHealth(_req, res, config, circuitBreaker) {
   });
 }
 
-async function handleRequest(req, res, config, logger, circuitBreaker) {
+async function handleRequest(req, res, runtime, logger) {
+  const { config, circuitBreaker } = runtime;
   const path = getRequestPath(req);
 
   try {
@@ -431,7 +467,7 @@ async function handleRequest(req, res, config, logger, circuitBreaker) {
     }
 
     if (req.method === "GET" && path === "/health") {
-      handleHealth(req, res, config, circuitBreaker);
+      handleHealth(req, res, runtime);
       return;
     }
 
@@ -475,12 +511,88 @@ async function handleRequest(req, res, config, logger, circuitBreaker) {
 function main() {
   const { config, configPath } = loadRuntimeConfig();
   const logger = createLogger(config, runtimeRoot);
-  const circuitBreaker = new VendorCircuitBreaker();
+  let runtime = {
+    config,
+    circuitBreaker: new VendorCircuitBreaker(),
+    configRevision: runtimeConfigRevision(config),
+    restartFields: [],
+  };
+  let reloadQueue = Promise.resolve();
+  let configWatcher = null;
+  let configWatchTimer = null;
   let stopping = false;
 
   const server = http.createServer((req, res) => {
-    void handleRequest(req, res, config, logger, circuitBreaker);
+    const snapshot = runtime;
+    void handleRequest(req, res, snapshot, logger);
   });
+
+  const reloadRuntimeConfig = (source) => {
+    const operation = reloadQueue.then(() => {
+      const loaded = loadRuntimeConfig();
+      const nextRevision = runtimeConfigRevision(loaded.config);
+      if (nextRevision === runtime.configRevision) {
+        return {
+          ok: true,
+          applied: false,
+          configRevision: runtime.configRevision,
+          restartRequired: runtime.restartFields.length > 0,
+          restartFields: runtime.restartFields,
+        };
+      }
+
+      const { effectiveConfig, restartFields } = prepareReloadedConfig(runtime.config, loaded.config);
+      runtime = {
+        config: effectiveConfig,
+        circuitBreaker: new VendorCircuitBreaker(),
+        configRevision: nextRevision,
+        restartFields,
+      };
+      logger.info("config_reloaded", {
+        source,
+        configRevision: nextRevision,
+        restartRequired: restartFields.length > 0,
+        restartFields,
+      });
+      return {
+        ok: true,
+        applied: true,
+        configRevision: nextRevision,
+        restartRequired: restartFields.length > 0,
+        restartFields,
+      };
+    });
+
+    reloadQueue = operation.catch((error) => {
+      logger.error("config_reload_failed", {
+        source,
+        errorName: error.name,
+        errorMessage: error.message,
+      });
+    });
+    return operation;
+  };
+
+  const scheduleWatchedReload = () => {
+    clearTimeout(configWatchTimer);
+    configWatchTimer = setTimeout(() => {
+      configWatchTimer = null;
+      void reloadRuntimeConfig("file-watch").catch(() => null);
+    }, CONFIG_WATCH_DEBOUNCE_MS);
+  };
+
+  try {
+    configWatcher = watch(dirname(configPath), (_eventType, filename) => {
+      if (!filename || String(filename) === basename(configPath)) {
+        scheduleWatchedReload();
+      }
+    });
+    configWatcher.on("error", (error) => {
+      logger.error("config_watch_failed", { errorName: error.name, errorMessage: error.message });
+    });
+  } catch (error) {
+    logger.error("config_watch_failed", { errorName: error.name, errorMessage: error.message });
+  }
 
   server.listen(config.router.port, config.router.host, () => {
     logger.info("router_started", {
@@ -498,6 +610,8 @@ function main() {
     }
 
     stopping = true;
+    clearTimeout(configWatchTimer);
+    configWatcher?.close();
     logger.info("router_stopping", { reason });
     server.close(() => {
       logger.close(() => process.exit(0));
@@ -516,6 +630,21 @@ function main() {
     process.on("message", (message) => {
       if (message?.type === "shutdown") {
         stopRouter("parent_request");
+        return;
+      }
+      if (message?.type === "reload-config" && message.requestId) {
+        void reloadRuntimeConfig("parent-request")
+          .then((result) => process.send?.({
+            type: "config-reloaded",
+            requestId: message.requestId,
+            ...result,
+          }))
+          .catch((error) => process.send?.({
+            type: "config-reload-failed",
+            requestId: message.requestId,
+            ok: false,
+            error: error.message || String(error),
+          }));
       }
     });
     process.on("disconnect", () => stopRouter("parent_disconnect"));
