@@ -169,6 +169,16 @@ async function waitForAuthorizedHealth(port, token, timeoutMs = 3000) {
   throw new Error(`Router did not accept the reloaded token in time: ${token}`);
 }
 
+async function assertEndpointUnavailable(url) {
+  try {
+    const response = await fetch(url);
+    await response.arrayBuffer();
+  } catch {
+    return;
+  }
+  assert.fail(`Expected endpoint to be unavailable: ${url}`);
+}
+
 async function requestChat(port, token = "test-token", model = "model-id") {
   const headers = { "content-type": "application/json" };
   if (token) {
@@ -484,7 +494,7 @@ async function testRuntimeConfigReload() {
       const health = await healthResponse.json();
       assert.equal(health.restartRequired, true);
       assert.deepEqual(health.restartFields, ["router.port"]);
-      await assert.rejects(() => fetch(`http://127.0.0.1:${nextPort}/health`));
+      await assertEndpointUnavailable(`http://127.0.0.1:${nextPort}/health`);
 
       const watchedConfig = {
         ...nextConfig,

@@ -43,9 +43,13 @@ jobs:
         shell: pwsh
         run: |
           npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run gui:build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run test:electron
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Windows installer
         shell: pwsh
@@ -106,9 +110,13 @@ jobs:
         shell: pwsh
         run: |
           npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run gui:build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run test:electron
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build macOS installers
         shell: pwsh

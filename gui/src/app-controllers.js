@@ -60,6 +60,14 @@ export function useUpdateController({ run, setToast }) {
     return typeof unsubscribe === "function" ? unsubscribe : undefined;
   }, []);
 
+  async function checkAppUpdate() {
+    await run("updateCheck", async () => {
+      const state = await getDesktopApi().checkForUpdates({ manual: true });
+      setUpdateState(state);
+      setToast(updateToastForState(state, "Update check completed."));
+    });
+  }
+
   async function downloadAppUpdate() {
     await run("updateDownload", async () => {
       const state = await getDesktopApi().downloadUpdate();
@@ -76,7 +84,7 @@ export function useUpdateController({ run, setToast }) {
     });
   }
 
-  return { updateState, downloadAppUpdate, installAppUpdate };
+  return { updateState, checkAppUpdate, downloadAppUpdate, installAppUpdate };
 }
 
 function updateToastForState(updateState, fallback) {

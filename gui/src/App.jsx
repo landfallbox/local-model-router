@@ -105,7 +105,7 @@ export default function App() {
   const routerValidation = useMemo(() => validateRouter(draft.router), [draft.router]);
   const routerActive = health?.ok || Number(health?.processCount || 0) > 0;
   const { logs, refreshLogs, loadOlderLogs } = useLogsController({ busy, run });
-  const { updateState, downloadAppUpdate, installAppUpdate } = useUpdateController({ run, setToast });
+  const { updateState, checkAppUpdate, downloadAppUpdate, installAppUpdate } = useUpdateController({ run, setToast });
 
   useEffect(() => {
     void loadState();
@@ -618,6 +618,7 @@ export default function App() {
             <div className="brand-version">{appVersion ? `v${appVersion}` : ""}</div>
             <SidebarUpdateButton
               updateState={updateState}
+              checkUpdate={checkAppUpdate}
               downloadUpdate={downloadAppUpdate}
               installUpdate={installAppUpdate}
               busy={busy}
@@ -1034,14 +1035,15 @@ function AppSettingsPage({ app, setAppSetting, busy }) {
   );
 }
 
-function SidebarUpdateButton({ updateState, downloadUpdate, installUpdate, busy }) {
+function SidebarUpdateButton({ updateState, checkUpdate, downloadUpdate, installUpdate, busy }) {
+  const isChecking = busy === "updateCheck" || updateState.status === "checking";
   const isDownloading = busy === "updateDownload" || updateState.status === "downloading";
   const isInstalling = busy === "updateInstall";
   const percent = Math.round(updateState.progress?.percent || 0);
 
   const downloadFailed = updateState.status === "error" && Boolean(updateState.availableVersion);
 
-  if (!["available", "downloading", "downloaded"].includes(updateState.status) && !downloadFailed) {
+  if (!updateState.supported) {
     return null;
   }
 
@@ -1069,6 +1071,15 @@ function SidebarUpdateButton({ updateState, downloadUpdate, installUpdate, busy 
     );
   }
 
+  if (isChecking) {
+    return (
+      <div className="update-status downloading" aria-label="Checking for updates">
+        <Loader2 className="spin" size={13} />
+        <span>Checking...</span>
+      </div>
+    );
+  }
+
   if (downloadFailed) {
     return (
       <button
@@ -1079,6 +1090,29 @@ function SidebarUpdateButton({ updateState, downloadUpdate, installUpdate, busy 
       >
         <span className="update-status-dot" />
         <span>Update failed · Retry</span>
+      </button>
+    );
+  }
+
+  if (updateState.status === "error") {
+    return (
+      <button
+        type="button"
+        className="update-status failed"
+        onClick={checkUpdate}
+        title={updateState.error || "Update check failed"}
+      >
+        <RefreshCw size={13} />
+        <span>Check failed · Retry</span>
+      </button>
+    );
+  }
+
+  if (updateState.status !== "available") {
+    return (
+      <button type="button" className="update-status" onClick={checkUpdate} title="Check for updates">
+        <RefreshCw size={13} />
+        <span>Check for updates</span>
       </button>
     );
   }

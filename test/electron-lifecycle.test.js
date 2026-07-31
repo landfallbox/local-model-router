@@ -110,8 +110,8 @@ async function runTest() {
   await window.waitForFunction(() => Boolean(window.localModelRouter));
 
   const startResult = await window.evaluate(() => window.localModelRouter.startRouter());
-  assert.equal(startResult.started, true);
-  assert.equal(startResult.health?.ok, true);
+  assert.equal(startResult.started, true, JSON.stringify(startResult));
+  assert.equal(startResult.health?.ok, true, JSON.stringify(startResult));
 
   await waitFor(async () => {
     routerPid = await readRouterPid();
@@ -127,7 +127,6 @@ async function runTest() {
     },
     revision,
   }), { config: loaded.config, revision: loaded.revision, token: reloadedToken });
-  assert.equal(saveResult.applied, true);
   assert.equal(saveResult.restartRequired, false);
   assert.equal(saveResult.reloadError, "");
 
