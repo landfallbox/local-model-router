@@ -1,6 +1,6 @@
 import http from "node:http";
 import { createHash, randomUUID } from "node:crypto";
-import { watch } from "node:fs";
+import { realpathSync, watch } from "node:fs";
 import { basename, dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -640,7 +640,8 @@ function main() {
   };
 
   try {
-    configWatcher = watch(dirname(configPath), (_eventType, filename) => {
+    const configDirectory = realpathSync.native(dirname(configPath));
+    configWatcher = watch(configDirectory, (_eventType, filename) => {
       if (!filename || String(filename) === basename(configPath)) {
         scheduleWatchedReload();
       }
