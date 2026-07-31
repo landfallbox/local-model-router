@@ -21,6 +21,11 @@ export const defaultDraft = {
 };
 
 const closeBehaviorValues = new Set(["tray", "exit", "ask"]);
+const requestFormatValues = new Set(["chat-completions", "responses"]);
+
+export function normalizeRequestFormat(value) {
+  return requestFormatValues.has(value) ? value : "chat-completions";
+}
 
 export function normalizeCloseBehavior(value) {
   return closeBehaviorValues.has(value) ? value : defaultDraft.app.closeBehavior;
@@ -92,6 +97,7 @@ export function toDraft(config) {
           ...vendor,
           models: normalizeVendorModelsForDraft(vendor, modelId),
           authentication: vendor.authentication === "api-key" || vendor.apiKey ? "api-key" : "none",
+          requestFormat: normalizeRequestFormat(vendor.requestFormat),
         }))
       : [],
   };
@@ -129,6 +135,7 @@ export function toConfig(draft) {
           enabled: model.enabled !== false,
         })),
         authentication: vendor.authentication === "api-key" ? "api-key" : "none",
+        requestFormat: normalizeRequestFormat(vendor.requestFormat),
         enabled: vendor.enabled !== false,
       };
       for (const key of ["timeoutMs", "apiKeyEnv", "headers", "model"]) {

@@ -48,7 +48,7 @@ import {
 import {
   canLoadVendorModels,
   cloneVendor,
-  endpointFromDraft,
+  endpointsFromDraft,
   formatLogTime,
   getVendorModelOptions,
   getVendorModelsErrorField,
@@ -100,7 +100,7 @@ export default function App() {
   const vendorModelsRequestRef = useRef(0);
   const vendorModelsSourceKeyRef = useRef("");
 
-  const endpoint = useMemo(() => endpointFromDraft(draft), [draft]);
+  const endpoints = useMemo(() => endpointsFromDraft(draft), [draft]);
   const status = useMemo(() => getStatus(health), [health]);
   const routerValidation = useMemo(() => validateRouter(draft.router), [draft.router]);
   const routerActive = health?.ok || Number(health?.processCount || 0) > 0;
@@ -301,9 +301,9 @@ export default function App() {
     }
   }
 
-  async function copyEndpoint() {
+  async function copyEndpoint(endpoint, label) {
     await getDesktopApi().writeClipboard(endpoint);
-    setToast("Endpoint copied.");
+    setToast(`${label} endpoint copied.`);
   }
 
   async function copyRouterApiKey() {
@@ -390,6 +390,7 @@ export default function App() {
       baseUrl: "https://example.com/v1",
       models: [{ id: draft.model.id || "model-id", enabled: true }],
       authentication: "none",
+      requestFormat: "chat-completions",
       enabled: false,
     };
 
@@ -686,15 +687,20 @@ export default function App() {
           )}
         </header>
 
-        <section className="endpoint-strip">
-          <div>
-            <span>Copilot endpoint</span>
-            <strong>{endpoint}</strong>
-          </div>
-          <button type="button" className="icon-command" onClick={copyEndpoint} title="Copy endpoint">
-            <Clipboard size={18} />
-          </button>
-        </section>
+        {page === "router" && (
+          <section className="endpoint-strip" aria-label="Router endpoints">
+            <EndpointRow
+              label="Chat Completions"
+              endpoint={endpoints.chatCompletions}
+              copyEndpoint={copyEndpoint}
+            />
+            <EndpointRow
+              label="Responses"
+              endpoint={endpoints.responses}
+              copyEndpoint={copyEndpoint}
+            />
+          </section>
+        )}
 
         <section className="content">
           {page === "application" && (
@@ -880,6 +886,23 @@ function configSaveMessage(result, savedMessage) {
     return "Settings saved and applied.";
   }
   return savedMessage;
+}
+
+function EndpointRow({ label, endpoint, copyEndpoint }) {
+  return (
+    <div className="endpoint-row">
+      <span>{label}</span>
+      <strong title={endpoint}>{endpoint}</strong>
+      <button
+        type="button"
+        className="icon-command"
+        onClick={() => copyEndpoint(endpoint, label)}
+        title={`Copy ${label} endpoint`}
+      >
+        <Clipboard size={18} />
+      </button>
+    </div>
+  );
 }
 
 function eyebrowForPage(page) {
@@ -1329,6 +1352,28 @@ function VendorEditorPage({
               <small className={"field-message " + vendorValidation.fields.authentication.tone}>{vendorValidation.fields.authentication.message}</small>
             )}
           </div>
+          <div className={["field", vendorValidation.fields.requestFormat?.tone && "has-" + vendorValidation.fields.requestFormat.tone].filter(Boolean).join(" ")}>
+            <span>Request format</span>
+            <div className="segmented-control">
+              <button
+                type="button"
+                className={vendor.requestFormat !== "responses" ? "active" : ""}
+                onClick={() => updateVendor("requestFormat", "chat-completions")}
+              >
+                Chat Completions
+              </button>
+              <button
+                type="button"
+                className={vendor.requestFormat === "responses" ? "active" : ""}
+                onClick={() => updateVendor("requestFormat", "responses")}
+              >
+                Responses
+              </button>
+            </div>
+            {vendorValidation.fields.requestFormat?.message && (
+              <small className={"field-message " + vendorValidation.fields.requestFormat.tone}>{vendorValidation.fields.requestFormat.message}</small>
+            )}
+          </div>
           <Field label="Base URL" wide message={vendorValidation.fields.baseUrl?.message} tone={vendorValidation.fields.baseUrl?.tone}>
             <input value={vendor.baseUrl || ""} onChange={(event) => updateVendor("baseUrl", event.target.value)} />
           </Field>
@@ -1412,11 +1457,14 @@ function VendorEditorPage({
               <ChevronDown size={16} />
             </summary>
             <div className="advanced-fields">
-              <Field label="Chat path" wide>
+              <Field label={vendor.requestFormat === "responses" ? "Responses path" : "Chat Completions path"} wide>
                 <input
-                  value={vendor.chatCompletionsPath || ""}
-                  placeholder="/chat/completions"
-                  onChange={(event) => updateVendor("chatCompletionsPath", event.target.value)}
+                  value={vendor.requestFormat === "responses" ? vendor.responsesPath || "" : vendor.chatCompletionsPath || ""}
+                  placeholder={vendor.requestFormat === "responses" ? "/responses" : "/chat/completions"}
+                  onChange={(event) => updateVendor(
+                    vendor.requestFormat === "responses" ? "responsesPath" : "chatCompletionsPath",
+                    event.target.value,
+                  )}
                 />
               </Field>
             </div>

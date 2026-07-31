@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readConfigStore, writeConfigStore } from "../gui/electron/config-store.js";
-import { getChatCompletionsUrl, getRouterBaseUrl } from "../src/router-urls.js";
+import { getChatCompletionsUrl, getResponsesUrl, getRouterBaseUrl } from "../src/router-urls.js";
 
 const tempDirectory = mkdtempSync(join(tmpdir(), "local-router-config-test-"));
 const configPath = join(tempDirectory, "config.json");
@@ -31,6 +31,10 @@ try {
   assert.equal(
     getChatCompletionsUrl({ router: { host: "127.0.0.1", port: 4000 } }),
     "http://127.0.0.1:4000/v1/chat/completions",
+  );
+  assert.equal(
+    getResponsesUrl({ router: { host: "::1", port: 4000 } }),
+    "http://[::1]:4000/v1/responses",
   );
 } finally {
   rmSync(tempDirectory, { recursive: true, force: true });

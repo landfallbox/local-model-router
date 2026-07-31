@@ -70,6 +70,7 @@ function vendorFromEnvironment(prefix, fallbackName) {
     baseUrl,
     apiKey,
     model: process.env[`${prefix}_MODEL`] || "model-id",
+    requestFormat: process.env[`${prefix}_REQUEST_FORMAT`] === "responses" ? "responses" : "chat-completions",
     authentication: apiKey ? "api-key" : "none",
     enabled: true,
   };

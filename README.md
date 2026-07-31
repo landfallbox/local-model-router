@@ -73,6 +73,8 @@ npm run health
 
 Point any OpenAI-compatible client at the local endpoint and use the same token as `router.apiKey`.
 
+The Router accepts both `POST /v1/chat/completions` and `POST /v1/responses`. Each vendor can independently use Chat Completions or Responses upstream format; the desktop app exposes this choice in Vendor Settings.
+
 Example client entry:
 
 ```json
@@ -104,6 +106,7 @@ Example client entry:
 - Saved Router credentials, limits, fallback settings, vendors, priorities, and models are applied to new requests without restarting the Router. Requests already in progress continue with the configuration snapshot they started with.
 - Changes to `router.host`, `router.port`, or `router.logFile` require a Router restart. Other changes in the same save are still applied immediately.
 - Manual edits to `config.json` are detected automatically. Invalid or incomplete edits are logged and ignored, so the Router keeps serving with its last valid configuration.
+- Requests and responses are forwarded unchanged when the client and vendor use the same format, including streaming. For different formats, the Router converts common non-streaming text and function-call payloads. Cross-format streaming and format-specific parameters that cannot be converted safely return `400` instead of being silently discarded.
 - If an upstream fails before streaming starts, another vendor can be tried. Once partial output has reached the client, the router cannot switch vendors without corrupting the stream.
 - Packaged builds store configuration in Electron's platform user-data directory:
   - Windows: `%APPDATA%\Local Model Router\config.json`.

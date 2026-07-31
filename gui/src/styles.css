@@ -530,10 +530,8 @@ h2 {
 }
 
 .endpoint-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  display: grid;
+  gap: 8px;
   margin: 16px 24px 0;
   padding: 12px 14px;
   border: 1px solid var(--line);
@@ -541,9 +539,16 @@ h2 {
   background: var(--surface);
 }
 
+.endpoint-row {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .endpoint-strip span {
   display: block;
-  margin-bottom: 3px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
@@ -552,7 +557,7 @@ h2 {
 .endpoint-strip strong {
   display: block;
   overflow: hidden;
-  max-width: calc(100vw - 410px);
+  max-width: 100%;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: Consolas, "Cascadia Mono", monospace;
@@ -1555,5 +1560,13 @@ h2 {
 
   .panel-grid {
     grid-template-columns: 1fr;
+  }
+
+  .endpoint-row {
+    grid-template-columns: minmax(0, 1fr) 36px;
+  }
+
+  .endpoint-row span {
+    grid-column: 1 / -1;
   }
 }

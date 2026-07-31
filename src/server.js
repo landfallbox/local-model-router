@@ -5,6 +5,7 @@ import { basename, dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createLogger } from "./logger.js";
+import { convertRequestBody, convertResponseBody, normalizeRequestFormat } from "./openai-protocol.js";
 import { loadRuntimeConfig, runtimeRoot } from "./runtime-config.js";
 import { VendorCircuitBreaker } from "./vendor-circuit-breaker.js";
 
@@ -104,9 +105,11 @@ async function readJsonBody(req, maxBodyBytes) {
   }
 }
 
-function buildUpstreamUrl(vendor) {
+function buildUpstreamUrl(vendor, requestFormat) {
   const baseUrl = vendor.baseUrl.replace(/\/+$/, "");
-  const path = vendor.chatCompletionsPath || "/chat/completions";
+  const path = requestFormat === "responses"
+    ? vendor.responsesPath || "/responses"
+    : vendor.chatCompletionsPath || "/chat/completions";
   return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
@@ -141,18 +144,17 @@ function linkClientAbort(req, res, abort) {
   };
 }
 
-async function callVendor(vendor, requestBody, signal) {
-  const body = {
-    ...requestBody,
-    model: vendor.selectedModel.id,
-  };
+async function callVendor(vendor, requestBody, inboundFormat, signal) {
+  const upstreamFormat = normalizeRequestFormat(vendor.requestFormat);
+  const body = convertRequestBody(requestBody, inboundFormat, upstreamFormat, vendor.selectedModel.id);
 
-  return fetch(buildUpstreamUrl(vendor), {
+  const response = await fetch(buildUpstreamUrl(vendor, upstreamFormat), {
     method: "POST",
     headers: buildUpstreamHeaders(vendor),
     body: JSON.stringify(body),
     signal,
   });
+  return { response, upstreamFormat };
 }
 
 function shouldFallback(statusCode, config) {
@@ -228,7 +230,7 @@ async function pipeUpstream(upstream, res) {
   await pipeline(Readable.fromWeb(upstream.body), res);
 }
 
-async function handleChat(req, res, config, logger, circuitBreaker) {
+async function handleGeneration(req, res, config, logger, circuitBreaker, inboundFormat) {
   const requestId = randomUUID();
   const startedAt = Date.now();
   const requestBody = await readJsonBody(req, config.router.maxBodyBytes);
@@ -263,12 +265,14 @@ async function handleChat(req, res, config, logger, circuitBreaker) {
         requestId,
         vendor: vendor.name,
         model: requestedModel,
+        inboundFormat,
+        upstreamFormat: normalizeRequestFormat(vendor.requestFormat),
         stream: requestBody.stream === true,
         circuitProbe: circuitPermission.probe,
         circuitForcedProbe: circuitPermission.forced,
       });
 
-      const upstream = await callVendor(vendor, requestBody, timeout.signal);
+      const { response: upstream, upstreamFormat } = await callVendor(vendor, requestBody, inboundFormat, timeout.signal);
       // requestTimeoutMs limits connection and response-header wait time. Once a
       // vendor responds, long-running streams may continue until completion or
       // until the client disconnects.
@@ -326,15 +330,26 @@ async function handleChat(req, res, config, logger, circuitBreaker) {
         model: requestedModel,
       });
       res.statusCode = upstream.status;
-      copyUpstreamHeaders(upstream, res, vendor.name);
-      await pipeUpstream(upstream, res);
+      if (upstreamFormat === inboundFormat) {
+        copyUpstreamHeaders(upstream, res, vendor.name);
+        await pipeUpstream(upstream, res);
+      } else {
+        const upstreamBody = await upstream.json();
+        const convertedBody = convertResponseBody(upstreamBody, upstreamFormat, inboundFormat);
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.setHeader("x-router-vendor", vendor.name);
+        res.end(JSON.stringify(convertedBody));
+      }
       return;
     } catch (error) {
+      const isProtocolFailure = error.statusCode === 400 && Boolean(error.errorType);
       const failure = {
         vendor: vendor.name,
         elapsedMs: Date.now() - vendorStartedAt,
         errorName: error.name,
         errorMessage: error.message,
+        errorType: error.errorType,
+        ...(isProtocolFailure ? { protocolFailure: true } : {}),
       };
       failures.push(failure);
 
@@ -356,6 +371,11 @@ async function handleChat(req, res, config, logger, circuitBreaker) {
         return;
       }
 
+      if (isProtocolFailure) {
+        circuitBreaker.release(circuitPermission);
+        continue;
+      }
+
       recordCircuitFailure(circuitBreaker, circuitPermission, logger, {
         requestId,
         vendor: vendor.name,
@@ -373,6 +393,17 @@ async function handleChat(req, res, config, logger, circuitBreaker) {
     totalElapsedMs: Date.now() - startedAt,
     failures,
   });
+
+  const protocolFailures = failures.filter((failure) => failure.protocolFailure);
+  if (protocolFailures.length === failures.length && protocolFailures.length) {
+    sendJson(res, 400, {
+      error: {
+        message: protocolFailures[0].errorMessage,
+        type: protocolFailures[0].errorType,
+      },
+    });
+    return;
+  }
 
   sendJson(res, 502, {
     error: {
@@ -477,7 +508,12 @@ async function handleRequest(req, res, runtime, logger) {
     }
 
     if (req.method === "POST" && path === "/v1/chat/completions") {
-      await handleChat(req, res, config, logger, circuitBreaker);
+      await handleGeneration(req, res, config, logger, circuitBreaker, "chat-completions");
+      return;
+    }
+
+    if (req.method === "POST" && path === "/v1/responses") {
+      await handleGeneration(req, res, config, logger, circuitBreaker, "responses");
       return;
     }
 
@@ -499,7 +535,8 @@ async function handleRequest(req, res, runtime, logger) {
       sendJson(res, error.statusCode || 500, {
         error: {
           message: error.message,
-          type: "router_error",
+          type: error.errorType || "router_error",
+          ...(error.parameter ? { param: error.parameter } : {}),
         },
       });
     } else {

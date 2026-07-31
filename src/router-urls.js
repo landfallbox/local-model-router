@@ -16,3 +16,7 @@ export function getRouterBaseUrl(config) {
 export function getChatCompletionsUrl(config) {
   return `${getRouterBaseUrl(config)}/v1/chat/completions`;
 }
+
+export function getResponsesUrl(config) {
+  return `${getRouterBaseUrl(config)}/v1/responses`;
+}

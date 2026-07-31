@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeRequestFormat } from "./openai-protocol.js";
 
 export const DEFAULT_CONFIG = {
   app: {
@@ -51,7 +52,9 @@ export const vendorSchema = z.object({
   authentication: z.enum(["none", "api-key"]).optional().default("none"),
   enabled: z.boolean().optional().default(true),
   apiKey: z.string().trim().optional(),
+  requestFormat: z.enum(["chat-completions", "responses"]).optional().default("chat-completions"),
   chatCompletionsPath: z.string().trim().optional(),
+  responsesPath: z.string().trim().optional(),
 }).passthrough().superRefine((vendor, context) => {
   if (vendor.enabled === false) {
     return;
@@ -200,10 +203,11 @@ export function normalizeVendor(vendor, defaultModelId = DEFAULT_CONFIG.model.id
       legacyModelId: vendor?.model,
     }),
     authentication,
+    requestFormat: normalizeRequestFormat(vendor?.requestFormat),
     enabled: vendor?.enabled !== false,
   };
 
-  for (const key of ["apiKey", "chatCompletionsPath"]) {
+  for (const key of ["apiKey", "chatCompletionsPath", "responsesPath"]) {
     if (item[key] !== undefined) {
       item[key] = String(item[key] || "").trim();
       if (!item[key]) {

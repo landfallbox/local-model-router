@@ -86,10 +86,15 @@ export function validateRouter(router) {
   return { errors, fields, hasErrors: errors.length > 0, firstError: errors[0] || "" };
 }
 
-export function endpointFromDraft(draft) {
-  const host = draft.router.host.trim() || "127.0.0.1";
+export function endpointsFromDraft(draft) {
+  const rawHost = draft.router.host.trim() || "127.0.0.1";
+  const host = rawHost.includes(":") && !rawHost.startsWith("[") ? `[${rawHost}]` : rawHost;
   const port = numberValue(draft.router.port, 4000);
-  return `http://${host}:${port}/v1/chat/completions`;
+  const baseUrl = `http://${host}:${port}/v1`;
+  return {
+    chatCompletions: `${baseUrl}/chat/completions`,
+    responses: `${baseUrl}/responses`,
+  };
 }
 
 export function getVendorCircuitSummary(vendorHealth) {
@@ -121,6 +126,7 @@ export function validateVendor(vendor) {
   const models = getVendorModels(vendor);
   const enabledModels = models.filter((model) => model.enabled !== false);
   const authentication = vendor?.authentication === "api-key" ? "api-key" : "none";
+  const requestFormat = vendor?.requestFormat || "chat-completions";
 
   if (!name) {
     fields.name = { tone: "error", message: "Name is required." };
@@ -156,6 +162,11 @@ export function validateVendor(vendor) {
   if (authentication === "api-key" && !vendor?.apiKey) {
     fields.apiKey = { tone: "error", message: "Enter the API key required by this vendor." };
     errors.push("Missing key");
+  }
+
+  if (!["chat-completions", "responses"].includes(requestFormat)) {
+    fields.requestFormat = { tone: "error", message: "Select a supported request format." };
+    errors.push("Invalid request format");
   }
 
   return { errors, warnings, fields, hasErrors: errors.length > 0 };

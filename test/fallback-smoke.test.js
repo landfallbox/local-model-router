@@ -185,6 +185,19 @@ async function requestChat(port, token = "test-token", model = "model-id") {
   });
 }
 
+async function requestResponses(port, token = "test-token", model = "model-id") {
+  const headers = { "content-type": "application/json" };
+  if (token) {
+    headers.authorization = `Bearer ${token}`;
+  }
+
+  return fetch(`http://127.0.0.1:${port}/v1/responses`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ model, input: "hello" }),
+  });
+}
+
 async function withRouter(name, config, test) {
   const configPath = writeConfig(name, config);
   const router = await startRouter(configPath);
@@ -252,6 +265,55 @@ async function testStatusFallback() {
   } finally {
     vendorA.server.close();
     vendorB.server.close();
+  }
+}
+
+async function testResponsesRoutingAndConversion() {
+  const received = [];
+  const vendor = await createMockVendor(async (req, res) => {
+    const body = JSON.parse(await readBody(req));
+    received.push({ path: req.url, body });
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      id: `resp-${received.length}`,
+      object: "response",
+      created_at: 10,
+      model: body.model,
+      output: [{
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "response answer" }],
+      }],
+    }));
+  });
+
+  try {
+    const port = await findFreePort();
+    const vendors = [{
+      name: "responses-vendor",
+      baseUrl: vendor.baseUrl,
+      models: [{ id: "model-id", enabled: true }],
+      requestFormat: "responses",
+    }];
+    await withRouter("responses-routing", baseConfig(port, vendors), async ({ port: routerPort }) => {
+      const nativeResponse = await requestResponses(routerPort);
+      assert.equal(nativeResponse.status, 200);
+      assert.equal(nativeResponse.headers.get("x-router-vendor"), "responses-vendor");
+      const nativeBody = await nativeResponse.json();
+      assert.equal(nativeBody.object, "response");
+      assert.equal(received[0].path, "/v1/responses");
+      assert.equal(received[0].body.input, "hello");
+
+      const convertedResponse = await requestChat(routerPort);
+      assert.equal(convertedResponse.status, 200);
+      const convertedBody = await convertedResponse.json();
+      assert.equal(received[1].path, "/v1/responses");
+      assert.deepEqual(received[1].body.input, [{ role: "user", content: "hello" }]);
+      assert.equal(convertedBody.object, "chat.completion");
+      assert.equal(convertedBody.choices[0].message.content, "response answer");
+    });
+  } finally {
+    vendor.server.close();
   }
 }
 
@@ -860,6 +922,7 @@ async function testParentDisconnectStopsRouter() {
 }
 
 await testStatusFallback();
+await testResponsesRoutingAndConversion();
 await testTimeoutFallback();
 await testCircuitBreakerSkipsFailedVendorPerModel();
 await testRuntimeConfigReload();

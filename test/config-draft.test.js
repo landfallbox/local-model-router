@@ -23,6 +23,21 @@ assert.equal(draft.router.maxBodyMb, "1.5");
 assert.equal(roundTrip.router.maxBodyBytes, 1572864);
 assert.deepEqual(roundTrip.vendors[0].models, [{ id: "legacy-model", enabled: true }]);
 assert.equal(roundTrip.vendors[0].model, undefined);
+assert.equal(draft.vendors[0].requestFormat, "chat-completions");
+assert.equal(roundTrip.vendors[0].requestFormat, "chat-completions");
+
+const responsesRoundTrip = toConfig(toDraft(normalizeConfig({
+  router: { apiKey: "test-token" },
+  vendors: [{
+    name: "responses",
+    baseUrl: "http://127.0.0.1:8000/v1",
+    models: [{ id: "model-id", enabled: true }],
+    requestFormat: "responses",
+    responsesPath: "/custom/responses",
+  }],
+})));
+assert.equal(responsesRoundTrip.vendors[0].requestFormat, "responses");
+assert.equal(responsesRoundTrip.vendors[0].responsesPath, "/custom/responses");
 assert.deepEqual(getVendorCircuitSummary({ models: [
   { id: "model-a", circuit: { state: "closed" } },
   { id: "model-b", circuit: { state: "open" } },
