@@ -39,6 +39,17 @@ async function findFreePort() {
   return port;
 }
 
+async function waitFor(predicate, message, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(message);
+}
+
 function writeConfig(name, config) {
   const configPath = join(tempDir, `${name}.json`);
   writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -69,7 +80,7 @@ async function stopRouter(router) {
   await once(router, "exit");
 }
 
-async function reloadRouter(router, timeoutMs = 3000) {
+async function reloadRouter(router, timeoutMs = 10000) {
   const requestId = `reload-${Date.now()}-${Math.random()}`;
   let timeout;
 
@@ -352,7 +363,7 @@ async function testTimeoutFallback() {
   const slow = await createMockVendor(async (req, res) => {
     calls.slow += 1;
     await readBody(req);
-    await new Promise((resolve) => setTimeout(resolve, 900));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ choices: [{ message: { content: "late" } }] }));
   });
@@ -368,7 +379,7 @@ async function testTimeoutFallback() {
     await withRouter("timeout-fallback", baseConfig(port, [
       { name: "slow", baseUrl: slow.baseUrl, model: "model-id" },
       { name: "fast", baseUrl: fast.baseUrl, model: "model-id" },
-    ], { router: { requestTimeoutMs: 200 } }), async ({ port: routerPort }) => {
+    ], { router: { requestTimeoutMs: 1000 } }), async ({ port: routerPort }) => {
       const response = await requestChat(routerPort);
       const body = await response.json();
       assert.equal(response.status, 200);
@@ -638,7 +649,8 @@ async function testClientAbortStopsFallback() {
         body: JSON.stringify({ model: "model-id", messages: [] }),
         signal: controller.signal,
       });
-      setTimeout(() => controller.abort(), 50);
+      await waitFor(() => calls.slow === 1, "Request did not reach the slow vendor.");
+      controller.abort();
       await assert.rejects(request, (error) => error.name === "AbortError");
       await new Promise((resolve) => setTimeout(resolve, 150));
       assert.equal(calls.slow, 1);

@@ -736,7 +736,7 @@ function restartRouter() {
 }
 
 async function waitForHealth(config, options = {}) {
-  for (let index = 0; index < 8; index += 1) {
+  for (let index = 0; index < 32; index += 1) {
     const health = await getHealth(config, { ...options, includeProcessCount: false });
     if (health.ok) {
       return health;
