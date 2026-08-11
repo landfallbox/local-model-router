@@ -90,19 +90,19 @@ function readPngSize(buffer) {
 
 async function renderTrayIcon(size, outputPath) {
   const scale = size / 16;
-  const strokeWidth = Math.max(1, Math.round(scale * 1.5));
-  const circleRadius = Math.max(1, Math.round(scale * 1.5));
+  const barX = 2 * scale;
+  const barWidth = 12 * scale;
+  const barHeight = 2.5 * scale;
+  const barRadius = 0.9 * scale;
+  const routeStrokeWidth = 2.2 * scale;
   const svg = Buffer.from(`
     <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-      <g fill="none" stroke="#000" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M${4 * scale} ${4 * scale}H${12 * scale}V${12 * scale}H${4 * scale}"/>
-        <path d="M${8 * scale} ${4 * scale}V${12 * scale}"/>
-      </g>
       <g fill="#000">
-        <circle cx="${4 * scale}" cy="${4 * scale}" r="${circleRadius}"/>
-        <circle cx="${8 * scale}" cy="${8 * scale}" r="${circleRadius}"/>
-        <circle cx="${12 * scale}" cy="${12 * scale}" r="${circleRadius}"/>
+        <rect x="${barX}" y="${3 * scale}" width="${barWidth}" height="${barHeight}" rx="${barRadius}"/>
+        <rect x="${barX}" y="${6.75 * scale}" width="${barWidth}" height="${barHeight}" rx="${barRadius}"/>
+        <rect x="${barX}" y="${10.5 * scale}" width="${barWidth}" height="${barHeight}" rx="${barRadius}"/>
       </g>
+      <path d="M${8 * scale} ${3.2 * scale}C${11.5 * scale} ${4.3 * scale} ${11.5 * scale} ${5.7 * scale} ${8 * scale} ${6.8 * scale}C${4.5 * scale} ${7.9 * scale} ${4.5 * scale} ${9.3 * scale} ${8 * scale} ${10.5 * scale}" fill="none" stroke="#000" stroke-width="${routeStrokeWidth}" stroke-linecap="round"/>
     </svg>
   `);
 

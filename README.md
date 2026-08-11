@@ -52,22 +52,7 @@ In the GUI, set:
 
 Each vendor can support multiple models. Requests are routed only to vendors that list the requested model id, and the same model id is sent to the selected upstream provider.
 
-Keep `config.json` private. It is ignored by git and may contain API keys.
-
-## Run And Check
-
-From a configured `config.json`:
-
-```powershell
-npm start
-```
-
-Health check:
-
-```powershell
-$env:ROUTER_API_KEY="replace-with-your-local-router-token"
-npm run health
-```
+Keep `config.json` private. It is ignored by git and may contain API keys. The desktop app manages the Router process and performs health checks internally.
 
 ## Client Configuration
 
@@ -125,7 +110,7 @@ The main runtime boundaries are:
 - `gui/electron/log-store.js`: byte-cursor log pagination.
 - `gui/src/config-draft.js`: lossless conversion between persisted configuration and form state.
 
-Router processes started by the desktop app are owned by the Electron main process and do not outlive an explicit app exit. The current app session uses a private parent-child IPC channel for graceful shutdown, with forced termination only as a timeout fallback. PID metadata and instance identity are retained for recovery after an abnormal app exit; a Router started outside the app is reported as external and is not terminated automatically.
+The Router process is owned by the Electron main process and does not outlive an explicit app exit. The current app session uses a private parent-child IPC channel for graceful shutdown, with forced termination only as a timeout fallback. PID metadata and instance identity are retained for recovery after an abnormal app exit.
 
 Build the renderer:
 
