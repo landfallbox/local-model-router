@@ -50,10 +50,19 @@ function normalizeVendorModelForDraft(model, fallbackId) {
   }
 
   const hasExplicitId = Object.prototype.hasOwnProperty.call(model, "id");
+  const pricing = model.pricing?.mode === "custom" ? model.pricing : null;
+  const pricingMode = ["openai", "custom"].includes(model.pricingMode)
+    ? model.pricingMode
+    : pricing ? "custom" : "openai";
   return {
     ...model,
     id: String(hasExplicitId ? model.id || "" : model.model || fallbackId).trim(),
     enabled: model.enabled !== false,
+    pricingMode,
+    pricingCurrency: normalizePricingCurrency(model.pricingCurrency ?? pricing?.currency),
+    inputPerMillion: model.inputPerMillion ?? (pricing ? String(pricing.inputPerMillion ?? "") : ""),
+    cachedInputPerMillion: model.cachedInputPerMillion ?? (pricing ? String(pricing.cachedInputPerMillion ?? "") : ""),
+    outputPerMillion: model.outputPerMillion ?? (pricing ? String(pricing.outputPerMillion ?? "") : ""),
   };
 }
 
@@ -97,6 +106,7 @@ export function toDraft(config) {
           ...vendor,
           models: normalizeVendorModelsForDraft(vendor, modelId),
           authentication: vendor.authentication === "api-key" || vendor.apiKey ? "api-key" : "none",
+          apiKeyHeader: vendor.apiKeyHeader || "authorization",
           requestFormat: normalizeRequestFormat(vendor.requestFormat),
         }))
       : [],
@@ -133,8 +143,18 @@ export function toConfig(draft) {
         models: normalizeVendorModelsForDraft(vendor, draft.model.id).map((model) => ({
           id: String(model.id || "").trim(),
           enabled: model.enabled !== false,
+          ...(model.pricingMode === "custom" ? {
+            pricing: {
+              mode: "custom",
+              currency: String(model.pricingCurrency || "USD").trim().toUpperCase() || "USD",
+              inputPerMillion: requiredNonnegativeNumber(model.inputPerMillion, "Input price"),
+              cachedInputPerMillion: optionalNonnegativeNumber(model.cachedInputPerMillion, "Cached input price"),
+              outputPerMillion: requiredNonnegativeNumber(model.outputPerMillion, "Output price"),
+            },
+          } : {}),
         })),
         authentication: vendor.authentication === "api-key" ? "api-key" : "none",
+        apiKeyHeader: vendor.apiKeyHeader || "authorization",
         requestFormat: normalizeRequestFormat(vendor.requestFormat),
         enabled: vendor.enabled !== false,
       };
@@ -180,4 +200,25 @@ function formatMegabytes(bytes) {
 function megabytesToBytes(value, fallbackBytes) {
   const megabytes = Number(value);
   return Number.isFinite(megabytes) ? Math.round(megabytes * 1048576) : fallbackBytes;
+}
+
+function requiredNonnegativeNumber(value, label) {
+  const text = String(value ?? "").trim();
+  const number = Number(text);
+  if (!text || !Number.isFinite(number) || number < 0) {
+    throw new Error(`${label} must be a non-negative number.`);
+  }
+  return number;
+}
+
+function optionalNonnegativeNumber(value, label) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return null;
+  }
+  return requiredNonnegativeNumber(text, label);
+}
+
+function normalizePricingCurrency(value) {
+  return String(value || "USD").trim().toUpperCase() === "CNY" ? "CNY" : "USD";
 }

@@ -2,11 +2,14 @@ import http from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { realpathSync, watch } from "node:fs";
 import { basename, dirname } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { StringDecoder } from "node:string_decoder";
 import { createLogger } from "./logger.js";
 import { convertRequestBody, convertResponseBody, normalizeRequestFormat } from "./openai-protocol.js";
 import { loadRuntimeConfig, runtimeRoot } from "./runtime-config.js";
+import { createUsageStore } from "./usage-store.js";
+import { estimateUsageCost, normalizeUsage, resolveModelPricing } from "./usage.js";
 import { VendorCircuitBreaker } from "./vendor-circuit-breaker.js";
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -135,8 +138,13 @@ function buildUpstreamUrl(vendor, requestFormat) {
 }
 
 function buildUpstreamHeaders(vendor) {
+  const apiKeyHeader = vendor.apiKeyHeader || "authorization";
+  const authenticationHeader = apiKeyHeader === "authorization"
+    ? `Bearer ${vendor.apiKey}`
+    : vendor.apiKey;
+
   return {
-    ...(vendor.apiKey ? { authorization: `Bearer ${vendor.apiKey}` } : {}),
+    ...(vendor.apiKey ? { [apiKeyHeader]: authenticationHeader } : {}),
     "content-type": "application/json",
   };
 }
@@ -242,16 +250,75 @@ function copyUpstreamHeaders(upstream, res, vendorName) {
   res.setHeader("x-router-vendor", vendorName);
 }
 
-async function pipeUpstream(upstream, res) {
+async function pipeUpstreamWithUsage(upstream, res, format) {
   if (!upstream.body) {
     res.end();
-    return;
+    return null;
   }
 
-  await pipeline(Readable.fromWeb(upstream.body), res);
+  let usage = null;
+  const tracker = createSseUsageTracker(format, (nextUsage) => {
+    usage = nextUsage;
+  });
+  await pipeline(Readable.fromWeb(upstream.body), tracker, res);
+  return usage;
 }
 
-async function handleGeneration(req, res, config, logger, circuitBreaker, inboundFormat) {
+function createSseUsageTracker(format, onUsage) {
+  const decoder = new StringDecoder("utf8");
+  let pending = "";
+
+  function inspectText(text, flush = false) {
+    pending += text;
+    const lines = pending.split(/\r?\n/);
+    pending = flush ? "" : lines.pop() || "";
+    for (const line of lines) {
+      const payload = line.startsWith("data:") ? line.slice(5).trim() : "";
+      if (!payload || payload === "[DONE]") {
+        continue;
+      }
+      try {
+        const event = JSON.parse(payload);
+        const usage = normalizeUsage(event, format) || normalizeUsage(event.response, format);
+        if (usage) {
+          onUsage(usage);
+        }
+      } catch {
+        // Non-JSON SSE events are forwarded unchanged and do not contribute usage.
+      }
+    }
+  }
+
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      inspectText(decoder.write(chunk));
+      callback(null, chunk);
+    },
+    flush(callback) {
+      inspectText(decoder.end(), true);
+      callback();
+    },
+  });
+}
+
+function recordUsage(usageStore, logger, context, usage, customPricing) {
+  const pricing = resolveModelPricing(context.model, customPricing);
+  const cost = estimateUsageCost(usage, pricing);
+  void usageStore.record({ ...context, usage, cost }).catch(() => null);
+  logger.info("usage_recorded", {
+    requestId: context.requestId,
+    vendor: context.vendor,
+    model: context.model,
+    stream: context.stream,
+    usageKnown: Boolean(usage),
+    totalTokens: usage?.totalTokens,
+    costAmount: cost?.amount,
+    costCurrency: cost?.currency,
+    pricingSource: pricing?.source,
+  });
+}
+
+async function handleGeneration(req, res, config, logger, circuitBreaker, usageStore, inboundFormat) {
   const requestId = randomUUID();
   const startedAt = Date.now();
   const requestBody = await readJsonBody(req, config.router.maxBodyBytes);
@@ -351,15 +418,41 @@ async function handleGeneration(req, res, config, logger, circuitBreaker, inboun
         model: requestedModel,
       });
       res.statusCode = upstream.status;
-      if (upstreamFormat === inboundFormat) {
+      const responseIsStream = upstreamFormat === inboundFormat && (
+        requestBody.stream === true || upstream.headers.get("content-type")?.includes("text/event-stream")
+      );
+      const usageContext = {
+        requestId,
+        vendor: vendor.name,
+        model: requestedModel,
+        format: upstreamFormat,
+        stream: responseIsStream,
+      };
+      if (responseIsStream) {
         copyUpstreamHeaders(upstream, res, vendor.name);
-        await pipeUpstream(upstream, res);
+        const usage = await pipeUpstreamWithUsage(upstream, res, upstreamFormat);
+        recordUsage(usageStore, logger, usageContext, usage, vendor.selectedModel.pricing);
       } else {
-        const upstreamBody = await upstream.json();
-        const convertedBody = convertResponseBody(upstreamBody, upstreamFormat, inboundFormat);
-        res.setHeader("content-type", "application/json; charset=utf-8");
-        res.setHeader("x-router-vendor", vendor.name);
-        res.end(JSON.stringify(convertedBody));
+        const upstreamText = await upstream.text();
+        let upstreamBody = null;
+        try {
+          upstreamBody = JSON.parse(upstreamText);
+        } catch (error) {
+          if (upstreamFormat !== inboundFormat) {
+            throw error;
+          }
+        }
+        const usage = normalizeUsage(upstreamBody, upstreamFormat);
+        if (upstreamFormat === inboundFormat) {
+          copyUpstreamHeaders(upstream, res, vendor.name);
+          res.end(upstreamText);
+        } else {
+          const convertedBody = convertResponseBody(upstreamBody, upstreamFormat, inboundFormat);
+          res.setHeader("content-type", "application/json; charset=utf-8");
+          res.setHeader("x-router-vendor", vendor.name);
+          res.end(JSON.stringify(convertedBody));
+        }
+        recordUsage(usageStore, logger, usageContext, usage, vendor.selectedModel.pricing);
       }
       return;
     } catch (error) {
@@ -503,7 +596,7 @@ function handleHealth(_req, res, runtime) {
   });
 }
 
-async function handleRequest(req, res, runtime, logger) {
+async function handleRequest(req, res, runtime, logger, usageStore) {
   const { config, circuitBreaker } = runtime;
   const path = getRequestPath(req);
 
@@ -529,12 +622,12 @@ async function handleRequest(req, res, runtime, logger) {
     }
 
     if (req.method === "POST" && path === "/v1/chat/completions") {
-      await handleGeneration(req, res, config, logger, circuitBreaker, "chat-completions");
+      await handleGeneration(req, res, config, logger, circuitBreaker, usageStore, "chat-completions");
       return;
     }
 
     if (req.method === "POST" && path === "/v1/responses") {
-      await handleGeneration(req, res, config, logger, circuitBreaker, "responses");
+      await handleGeneration(req, res, config, logger, circuitBreaker, usageStore, "responses");
       return;
     }
 
@@ -569,6 +662,13 @@ async function handleRequest(req, res, runtime, logger) {
 function main() {
   const { config, configPath } = loadRuntimeConfig();
   const logger = createLogger(config, runtimeRoot);
+  const usageStore = createUsageStore(runtimeRoot, {
+    onError: (error, entry) => logger.error("usage_write_failed", {
+      requestId: entry.requestId,
+      errorName: error.name,
+      errorMessage: error.message,
+    }),
+  });
   let runtime = {
     config,
     circuitBreaker: new VendorCircuitBreaker(),
@@ -582,7 +682,7 @@ function main() {
 
   const server = http.createServer((req, res) => {
     const snapshot = runtime;
-    void handleRequest(req, res, snapshot, logger);
+    void handleRequest(req, res, snapshot, logger, usageStore);
   });
 
   const reloadRuntimeConfig = (source) => {
@@ -673,7 +773,7 @@ function main() {
     configWatcher?.close();
     logger.info("router_stopping", { reason });
     server.close(() => {
-      logger.close(() => process.exit(0));
+      void usageStore.close().finally(() => logger.close(() => process.exit(0)));
     });
     server.closeIdleConnections();
     if (reason === "parent_disconnect") {

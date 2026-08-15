@@ -26,14 +26,22 @@
       "models": [
         {
           "id": "model-id",
-          "enabled": true
+          "enabled": true,
+          "pricing": {
+            "mode": "custom",
+            "currency": "USD",
+            "inputPerMillion": 1,
+            "cachedInputPerMillion": 0.1,
+            "outputPerMillion": 4
+          }
         },
         {
-          "id": "coder-model",
+          "id": "gpt-5-mini",
           "enabled": true
         }
       ],
       "authentication": "api-key",
+      "apiKeyHeader": "authorization",
       "apiKey": "replace-with-primary-vendor-key",
       "requestFormat": "chat-completions",
       "enabled": false
@@ -52,6 +60,7 @@
         }
       ],
       "authentication": "api-key",
+      "apiKeyHeader": "authorization",
       "apiKey": "replace-with-fallback-vendor-key",
       "requestFormat": "responses",
       "enabled": false

@@ -38,10 +38,19 @@ const httpUrlSchema = z.string().trim().refine((value) => {
 
 const statusCodeSchema = z.number().int().min(100).max(599);
 const closeBehaviorSchema = z.enum(["tray", "exit", "ask"]);
+const apiKeyHeaderSchema = z.enum(["authorization", "api-key", "x-api-key"]);
+const customPricingSchema = z.object({
+  mode: z.literal("custom"),
+  currency: z.string().trim().min(1).default("USD"),
+  inputPerMillion: z.number().nonnegative(),
+  cachedInputPerMillion: z.number().nonnegative().nullable().optional().default(null),
+  outputPerMillion: z.number().nonnegative(),
+});
 
 export const vendorModelSchema = z.object({
   id: z.string().trim().optional().default(""),
   enabled: z.boolean().optional().default(true),
+  pricing: customPricingSchema.optional(),
 }).passthrough();
 
 export const vendorSchema = z.object({
@@ -50,6 +59,7 @@ export const vendorSchema = z.object({
   model: z.string().trim().optional(),
   models: z.array(vendorModelSchema).optional().default([]),
   authentication: z.enum(["none", "api-key"]).optional().default("none"),
+  apiKeyHeader: apiKeyHeaderSchema.optional().default("authorization"),
   enabled: z.boolean().optional().default(true),
   apiKey: z.string().trim().optional(),
   requestFormat: z.enum(["chat-completions", "responses"]).optional().default("chat-completions"),
@@ -203,6 +213,7 @@ export function normalizeVendor(vendor, defaultModelId = DEFAULT_CONFIG.model.id
       legacyModelId: vendor?.model,
     }),
     authentication,
+    apiKeyHeader: normalizeApiKeyHeader(vendor?.apiKeyHeader),
     requestFormat: normalizeRequestFormat(vendor?.requestFormat),
     enabled: vendor?.enabled !== false,
   };
@@ -226,6 +237,11 @@ export function normalizeVendor(vendor, defaultModelId = DEFAULT_CONFIG.model.id
   }
 
   return item;
+}
+
+function normalizeApiKeyHeader(value) {
+  const header = String(value || "authorization").trim().toLowerCase();
+  return apiKeyHeaderSchema.safeParse(header).success ? header : "authorization";
 }
 
 export function normalizeVendorModels(value, { defaultModelId = DEFAULT_CONFIG.model.id, hasExplicitModels = Array.isArray(value), legacyModelId = "" } = {}) {
@@ -252,10 +268,32 @@ function normalizeVendorModel(model, fallbackId) {
   }
 
   const id = String(model?.id || model?.model || fallbackId).trim();
-  return {
+  const normalized = {
     ...model,
     id,
     enabled: model?.enabled !== false,
+  };
+  const pricing = normalizeModelPricing(model?.pricing);
+  if (pricing) {
+    normalized.pricing = pricing;
+  } else {
+    delete normalized.pricing;
+  }
+  return normalized;
+}
+
+function normalizeModelPricing(value) {
+  if (!value || value.mode !== "custom") {
+    return undefined;
+  }
+  return {
+    mode: "custom",
+    currency: String(value.currency || "USD").trim().toUpperCase() || "USD",
+    inputPerMillion: Number(value.inputPerMillion),
+    cachedInputPerMillion: value.cachedInputPerMillion === null || value.cachedInputPerMillion === undefined
+      ? null
+      : Number(value.cachedInputPerMillion),
+    outputPerMillion: Number(value.outputPerMillion),
   };
 }
 

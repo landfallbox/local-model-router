@@ -71,6 +71,48 @@ const routerResultSchema = z.object({
   error: z.string().optional(),
 }).passthrough();
 
+const usageCostSchema = z.object({
+  currency: z.string().min(1),
+  amount: z.number().nonnegative(),
+});
+const usageAggregateSchema = z.object({
+  startsAt: z.string(),
+  requestCount: z.number().int().nonnegative(),
+  usageKnownCount: z.number().int().nonnegative(),
+  usageCoverage: z.number().min(0).max(1),
+  pricedRequestCount: z.number().int().nonnegative(),
+  priceCoverage: z.number().min(0).max(1),
+  inputTokens: z.number().int().nonnegative(),
+  cachedInputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  reasoningTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+  costs: z.array(usageCostSchema),
+});
+const namedUsageAggregateSchema = usageAggregateSchema.extend({ name: z.string() });
+const usageSummarySchema = z.object({
+  generatedAt: z.string(),
+  timeZone: z.string(),
+  ignoredLines: z.number().int().nonnegative(),
+  filters: z.object({
+    vendor: z.string(),
+    model: z.string(),
+    vendors: z.array(z.string()),
+    models: z.array(z.string()),
+  }),
+  periods: z.object({
+    day: usageAggregateSchema,
+    week: usageAggregateSchema,
+    month: usageAggregateSchema,
+  }),
+  daily: z.array(usageAggregateSchema.extend({
+    date: z.string(),
+    models: z.array(namedUsageAggregateSchema),
+  })),
+  vendors: z.array(namedUsageAggregateSchema),
+  models: z.array(namedUsageAggregateSchema),
+});
+
 const optionalOptionsRequest = (schema) => z.tuple([schema.optional()]);
 const contract = (request, response) => ({ request, response });
 
@@ -100,6 +142,10 @@ export const ipcContracts = Object.freeze({
     nextBefore: z.number().int().nonnegative().nullable(),
     hasMore: z.boolean(),
   })),
+  "usage:summary": contract(optionalOptionsRequest(z.object({
+    vendor: z.string().optional(),
+    model: z.string().optional(),
+  })), usageSummarySchema),
   "file:openConfig": contract(emptyRequest, z.string()),
   "file:openLog": contract(emptyRequest, z.string()),
   "update:getState": contract(emptyRequest, updateStateSchema),

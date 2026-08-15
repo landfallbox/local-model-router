@@ -1,5 +1,6 @@
 config.json
 logs/
+usage/
 node_modules/
 dist/
 release/

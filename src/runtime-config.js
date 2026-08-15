@@ -48,6 +48,7 @@ function normalizeRuntimeVendorModels(vendor, defaultModelId) {
 
   return models
     .map((model) => ({
+      ...model,
       id: String(model.id || defaultModelId || "model-id").trim(),
       enabled: model.enabled !== false,
     }))

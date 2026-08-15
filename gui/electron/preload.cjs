@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("localModelRouter", {
   restartRouter: () => ipcRenderer.invoke("router:restart"),
   checkHealth: (options) => ipcRenderer.invoke("router:health", options),
   readLogs: (options) => ipcRenderer.invoke("logs:read", options),
+  readUsageSummary: (options) => ipcRenderer.invoke("usage:summary", options),
   openConfig: () => ipcRenderer.invoke("file:openConfig"),
   openLog: () => ipcRenderer.invoke("file:openLog"),
   getUpdateState: () => ipcRenderer.invoke("update:getState"),

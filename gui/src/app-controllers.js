@@ -40,6 +40,17 @@ export function useLogsController({ busy, run }) {
   return { logs, refreshLogs, loadOlderLogs };
 }
 
+export function useUsageController() {
+  const [usage, setUsage] = useState(null);
+
+  async function refreshUsage(options) {
+    const result = await getDesktopApi().readUsageSummary(options);
+    setUsage(result);
+  }
+
+  return { usage, refreshUsage };
+}
+
 export function useUpdateController({ run, setToast }) {
   const [updateState, setUpdateState] = useState(defaultUpdateState);
 

@@ -159,6 +159,15 @@ export function validateVendor(vendor) {
     }
   }
 
+  const invalidPricingModel = models.find((model) => model.pricingMode === "custom" && !isValidCustomPricing(model));
+  if (invalidPricingModel) {
+    fields.models = {
+      tone: "error",
+      message: `Enter valid non-negative prices for ${invalidPricingModel.id || "the custom-priced model"}.`,
+    };
+    errors.push("Invalid model pricing");
+  }
+
   if (authentication === "api-key" && !vendor?.apiKey) {
     fields.apiKey = { tone: "error", message: "Enter the API key required by this vendor." };
     errors.push("Missing key");
@@ -242,4 +251,20 @@ export function formatLogTime(value) {
   }
 
   return date.toLocaleString();
+}
+
+function isValidCustomPricing(model) {
+  return Boolean(String(model.pricingCurrency || "").trim())
+    && isNonnegativeNumber(model.inputPerMillion, false)
+    && isNonnegativeNumber(model.cachedInputPerMillion, true)
+    && isNonnegativeNumber(model.outputPerMillion, false);
+}
+
+function isNonnegativeNumber(value, optional) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return optional;
+  }
+  const number = Number(text);
+  return Number.isFinite(number) && number >= 0;
 }

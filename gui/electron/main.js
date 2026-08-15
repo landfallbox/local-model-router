@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_CONFIG, normalizeConfig } from "../../src/config.js";
 import { getChatCompletionsUrl, getRouterBaseUrl } from "../../src/router-urls.js";
+import { readUsageSummary } from "../../src/usage-store.js";
 import { readConfigStore, writeConfigStore } from "./config-store.js";
 import { parseIpcRequest, parseIpcResponse } from "./ipc-contracts.js";
 import { ensureLogFile, readLogPage, resolveLogPath } from "./log-store.js";
@@ -225,10 +226,12 @@ async function fetchVendorModels(_event, vendor) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   const apiKey = vendor?.authentication === "api-key" ? String(vendor?.apiKey || "").trim() : "";
+  const apiKeyHeader = vendor?.apiKeyHeader || "authorization";
+  const authenticationHeader = apiKeyHeader === "authorization" ? `Bearer ${apiKey}` : apiKey;
 
   try {
     const response = await fetch(url, {
-      headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+      headers: apiKey ? { [apiKeyHeader]: authenticationHeader } : {},
       signal: controller.signal,
     });
     const text = await response.text();
@@ -808,6 +811,14 @@ async function readLogs(_event, options = {}) {
   return readLogPage(logPath, { limit, before });
 }
 
+async function readUsage(_event, options = {}) {
+  const { paths } = await loadConfig();
+  return readUsageSummary(paths.dataDir, {
+    vendor: options.vendor,
+    model: options.model,
+  });
+}
+
 function clampNumber(value, fallback, min, max) {
   const number = Number(value);
   if (!Number.isFinite(number)) {
@@ -1141,6 +1152,7 @@ registerIpcHandler("router:stop", stopRouter);
 registerIpcHandler("router:restart", restartRouter);
 registerIpcHandler("router:health", (_event, options) => getHealth(null, options));
 registerIpcHandler("logs:read", readLogs);
+registerIpcHandler("usage:summary", readUsage);
 registerIpcHandler("file:openConfig", openConfigFile);
 registerIpcHandler("file:openLog", openLogFile);
 registerIpcHandler("update:getState", getUpdateState);

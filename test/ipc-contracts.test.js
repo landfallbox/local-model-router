@@ -16,11 +16,19 @@ assert.deepEqual(
   parseIpcRequest("logs:read", [{ limit: 80, before: 1024 }]),
   [{ limit: 80, before: 1024 }],
 );
+assert.deepEqual(
+  parseIpcRequest("usage:summary", [{ vendor: "vendor-a", model: "gpt-5-mini" }]),
+  [{ vendor: "vendor-a", model: "gpt-5-mini" }],
+);
 assert.equal(parseIpcResponse("router:start", { started: true, via: "process", pid: 1234, health }).health.ok, true);
 
 assert.throws(
   () => parseIpcRequest("logs:read", [{ limit: "80" }]),
   /Invalid IPC request for logs:read: 0\.limit/,
+);
+assert.throws(
+  () => parseIpcRequest("usage:summary", [{ vendor: 42 }]),
+  /Invalid IPC request for usage:summary: 0\.vendor/,
 );
 assert.throws(
   () => parseIpcResponse("router:start", { started: true, health: { ...health, processCount: "0" } }),

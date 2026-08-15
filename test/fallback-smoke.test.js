@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readUsageSummary } from "../src/usage-store.js";
 
 const tempDir = mkdtempSync(join(tmpdir(), "local-router-test-"));
 const projectRoot = new URL("..", import.meta.url);
@@ -64,6 +65,7 @@ async function startRouter(configPath) {
     env: {
       ...process.env,
       ROUTER_CONFIG: configPath,
+      LOCAL_MODEL_ROUTER_DATA_DIR: tempDir,
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
@@ -920,6 +922,73 @@ async function testUpstreamErrorLogRedaction() {
   }
 }
 
+async function testUsageCaptureForJsonAndSse() {
+  const vendor = await createMockVendor(async (req, res) => {
+    const body = JSON.parse(await readBody(req));
+    if (body.stream === true) {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "streamed" } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 80, completion_tokens: 70, total_tokens: 150 } })}\n\n`);
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      choices: [{ message: { content: "regular" } }],
+      usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+    }));
+  });
+
+  try {
+    const port = await findFreePort();
+    const model = {
+      id: "usage-capture-model",
+      enabled: true,
+      pricing: {
+        mode: "custom",
+        currency: "USD",
+        inputPerMillion: 1,
+        cachedInputPerMillion: 0.5,
+        outputPerMillion: 2,
+      },
+    };
+    await withRouter("usage-capture", baseConfig(port, [{
+      name: "usage-capture-vendor",
+      baseUrl: vendor.baseUrl,
+      models: [model],
+    }]), async ({ port: routerPort }) => {
+      const regular = await requestChat(routerPort, "test-token", model.id);
+      assert.equal((await regular.json()).choices[0].message.content, "regular");
+
+      const streamed = await fetch(`http://127.0.0.1:${routerPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ model: model.id, messages: [], stream: true }),
+      });
+      const streamText = await streamed.text();
+      assert.match(streamText, /streamed/);
+      assert.match(streamText, /"total_tokens":150/);
+      assert.match(streamText, /data: \[DONE\]/);
+
+      await waitFor(async () => {
+        const summary = await readUsageSummary(tempDir);
+        return summary.models.find((item) => item.name === model.id)?.requestCount === 2;
+      }, "Router did not persist JSON and SSE usage events.");
+      const summary = await readUsageSummary(tempDir);
+      const modelUsage = summary.models.find((item) => item.name === model.id);
+      assert.equal(modelUsage.usageKnownCount, 2);
+      assert.equal(modelUsage.totalTokens, 300);
+      assert.deepEqual(modelUsage.costs, [{ currency: "USD", amount: 0.00042 }]);
+    });
+  } finally {
+    vendor.server.close();
+  }
+}
+
 async function testNoVendorsFailsFast() {
   const port = await findFreePort();
   const configPath = writeConfig("no-vendors", baseConfig(port, []));
@@ -989,6 +1058,7 @@ await testHealthRequiresAuth();
 await testHealthRedactsVendorBaseUrl();
 await testMissingRouterApiKeyFailsFast();
 await testUpstreamErrorLogRedaction();
+await testUsageCaptureForJsonAndSse();
 await testNoVendorsFailsFast();
 await testParentIpcStopsRouterGracefully();
 await testParentDisconnectStopsRouter();

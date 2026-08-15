@@ -15,7 +15,7 @@ The router tries enabled vendors in priority order. If the current vendor times 
 - OpenAI-compatible `/v1/chat/completions` proxy.
 - Local vendor priority and fallback configuration.
 - Local API key required for access.
-- Electron GUI for configuration, status, logs, and tray control.
+- Electron GUI for configuration, status, token usage, estimated cost, logs, and tray control.
 - Optional login startup on Windows and macOS, disabled by default.
 - Structured logs without API keys, authorization headers, secrets, or upstream response bodies.
 
@@ -48,9 +48,12 @@ In the GUI, set:
 - `vendors`: upstream providers in priority order.
 - `baseUrl`: the upstream API base URL, usually ending in `/v1`.
 - `models[].id`: a model name this vendor can serve.
+- `models[].pricing`: optional custom input, cached-input, and output prices per one million tokens.
 - `authentication`: `none` or `api-key`.
 
 Each vendor can support multiple models. Requests are routed only to vendors that list the requested model id, and the same model id is sent to the selected upstream provider.
+
+The Usage page reports daily, weekly, and monthly input/output token totals, a 30-day trend, and current-month vendor/model breakdowns. Known OpenAI model ids use the standard USD API prices published at <https://developers.openai.com/api/docs/pricing>; the bundled catalog records its update date in `src/usage.js`. Select `Custom` in Vendor Settings to override prices or price non-OpenAI models. Each event stores its price snapshot so later configuration changes do not rewrite historical estimates.
 
 Keep `config.json` private. It is ignored by git and may contain API keys. The desktop app manages the Router process and performs health checks internally.
 
@@ -93,6 +96,8 @@ Example client entry:
 - Manual edits to `config.json` are detected automatically. Invalid or incomplete edits are logged and ignored, so the Router keeps serving with its last valid configuration.
 - Requests and responses are forwarded unchanged when the client and vendor use the same format, including streaming. For different formats, the Router converts common non-streaming text and function-call payloads. Cross-format streaming and format-specific parameters that cannot be converted safely return `400` instead of being silently discarded.
 - If an upstream fails before streaming starts, another vendor can be tried. Once partial output has reached the client, the router cannot switch vendors without corrupting the stream.
+- Token totals depend on the upstream response's `usage` metadata. Streaming providers that omit final usage are counted as requests but excluded from token and cost totals; the Usage page displays token and price coverage instead of treating missing metadata as zero.
+- Usage events contain request metadata and token counts, not prompts or generated content. They are stored as monthly JSONL files under the platform user-data directory's `usage` folder.
 - Packaged builds store configuration in Electron's platform user-data directory:
   - Windows: `%APPDATA%\Local Model Router\config.json`.
   - macOS: `~/Library/Application Support/Local Model Router/config.json`.
@@ -105,6 +110,8 @@ The main runtime boundaries are:
 - `src/vendor-circuit-breaker.js`: per-vendor, per-model passive failure tracking and half-open recovery.
 - `src/runtime-config.js`: file and environment configuration for the Router process.
 - `src/logger.js`: structured logging and recursive secret redaction.
+- `src/usage.js`: usage normalization and OpenAI/custom token pricing.
+- `src/usage-store.js`: monthly JSONL persistence and local-calendar aggregation.
 - `gui/electron/main.js`: Electron lifecycle, tray, IPC registration, and orchestration.
 - `gui/electron/config-store.js`: validated, revision-checked, atomic configuration writes.
 - `gui/electron/log-store.js`: byte-cursor log pagination.

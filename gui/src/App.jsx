@@ -24,6 +24,7 @@ import {
   EyeOff,
   FileCog,
   FileText,
+  Gauge,
   Loader2,
   Play,
   Plus,
@@ -59,14 +60,16 @@ import {
   validateRouter,
   validateVendor,
 } from "./app-model.js";
-import { useLogsController, useUpdateController } from "./app-controllers.js";
+import { useLogsController, useUpdateController, useUsageController } from "./app-controllers.js";
 import { getDesktopApi } from "./desktop-api.js";
+import { resolveModelPricing } from "../../src/usage.js";
 
 const defaultAppName = "Local Model Router";
 
 const navItems = [
   { id: "application", label: "Application", icon: Settings2 },
   { id: "router", label: "Router", icon: Server },
+  { id: "usage", label: "Usage", icon: Gauge },
   { id: "logs", label: "Logs", icon: Terminal },
 ];
 
@@ -75,6 +78,8 @@ const closeBehaviorOptions = [
   { value: "exit", label: "Exit and stop" },
   { value: "ask", label: "Ask every time" },
 ];
+
+const currencyOptions = ["USD", "CNY"];
 
 export default function App() {
   const [page, setPage] = useState("application");
@@ -105,6 +110,7 @@ export default function App() {
   const routerValidation = useMemo(() => validateRouter(draft.router), [draft.router]);
   const routerActive = health?.ok || Number(health?.processCount || 0) > 0;
   const { logs, refreshLogs, loadOlderLogs } = useLogsController({ busy, run });
+  const { usage, refreshUsage } = useUsageController();
   const { updateState, checkAppUpdate, downloadAppUpdate, installAppUpdate } = useUpdateController({ run, setToast });
 
   useEffect(() => {
@@ -139,6 +145,9 @@ export default function App() {
   useEffect(() => {
     if (page === "logs") {
       void run("logs", refreshLogs);
+    }
+    if (page === "usage") {
+      void run("usage", refreshUsage);
     }
   }, [page]);
 
@@ -757,6 +766,13 @@ export default function App() {
               onBack={closeVendorEditor}
             />
           )}
+          {page === "usage" && (
+            <UsagePage
+              usage={usage}
+              refreshUsage={(options) => run("usage", () => refreshUsage(options))}
+              busy={busy}
+            />
+          )}
           {page === "logs" && (
             <LogsPage
               logs={logs}
@@ -918,6 +934,7 @@ function titleForPage(page, vendorEditorDraft) {
   return {
     application: "Application",
     router: "Router",
+    usage: "Token Usage",
     logs: "Runtime Logs",
   }[page];
 }
@@ -1449,36 +1466,15 @@ function VendorEditorPage({
             </div>
             <div className="model-list">
               {models.map((model, index) => (
-                <div className="model-row" key={`${model.id || "model"}-${index}`}>
-                  <label className="toggle-row compact" title={model.enabled === false ? "Enable model" : "Disable model"}>
-                    <input
-                      className="checkbox"
-                      type="checkbox"
-                      checked={model.enabled !== false}
-                      onChange={(event) => updateVendorModel(index, "enabled", event.target.checked)}
-                    />
-                    <span>{model.enabled === false ? "Off" : "On"}</span>
-                  </label>
-                  <div className="model-select">
-                    <select
-                      value={model.id || ""}
-                      onFocus={loadVendorModelsOnSelect}
-                      onMouseDown={loadVendorModelsOnSelect}
-                      onChange={(event) => updateVendorModel(index, "id", event.target.value)}
-                    >
-                      {!model.id && <option value="">Select model</option>}
-                      {modelOptions.map((modelId) => (
-                        <option value={modelId} key={modelId}>
-                          {modelId}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown aria-hidden="true" size={16} />
-                  </div>
-                  <button type="button" className="icon-command danger" onClick={() => removeVendorModel(index)} title="Remove model">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
+                <ModelPricingRow
+                  key={`${model.id || "model"}-${index}`}
+                  model={model}
+                  index={index}
+                  modelOptions={modelOptions}
+                  updateVendorModel={updateVendorModel}
+                  removeVendorModel={removeVendorModel}
+                  loadVendorModelsOnSelect={loadVendorModelsOnSelect}
+                />
               ))}
             </div>
             {modelLoadMessage && <small className="field-message warning">{modelLoadMessage}</small>}
@@ -1507,6 +1503,395 @@ function VendorEditorPage({
       </div>
     </div>
   );
+}
+
+function ModelPricingRow({
+  model,
+  index,
+  modelOptions,
+  updateVendorModel,
+  removeVendorModel,
+  loadVendorModelsOnSelect,
+}) {
+  const customPricing = model.pricingMode === "custom";
+  const openAIPricing = resolveModelPricing(model.id);
+
+  return (
+    <div className="model-pricing-row">
+      <div className="model-row">
+        <label className="toggle-row compact" title={model.enabled === false ? "Enable model" : "Disable model"}>
+          <input
+            className="checkbox"
+            type="checkbox"
+            checked={model.enabled !== false}
+            onChange={(event) => updateVendorModel(index, "enabled", event.target.checked)}
+          />
+          <span>{model.enabled === false ? "Off" : "On"}</span>
+        </label>
+        <div className="model-select">
+          <select
+            value={model.id || ""}
+            onFocus={loadVendorModelsOnSelect}
+            onMouseDown={loadVendorModelsOnSelect}
+            onChange={(event) => updateVendorModel(index, "id", event.target.value)}
+          >
+            {!model.id && <option value="">Select model</option>}
+            {modelOptions.map((modelId) => (
+              <option value={modelId} key={modelId}>
+                {modelId}
+              </option>
+            ))}
+          </select>
+          <ChevronDown aria-hidden="true" size={16} />
+        </div>
+        <button type="button" className="icon-command danger" onClick={() => removeVendorModel(index)} title="Remove model">
+          <Trash2 size={16} />
+        </button>
+      </div>
+
+      <div className="pricing-editor">
+        <div className="segmented-control pricing-mode">
+          <button
+            type="button"
+            className={!customPricing ? "active" : ""}
+            onClick={() => updateVendorModel(index, "pricingMode", "openai")}
+          >
+            OpenAI price
+          </button>
+          <button
+            type="button"
+            className={customPricing ? "active" : ""}
+            onClick={() => updateVendorModel(index, "pricingMode", "custom")}
+          >
+            Custom
+          </button>
+        </div>
+        <PricingFields
+          currency={customPricing ? model.pricingCurrency : openAIPricing?.currency}
+          input={customPricing ? model.inputPerMillion : openAIPricing?.inputPerMillion}
+          cached={customPricing ? model.cachedInputPerMillion : openAIPricing?.cachedInputPerMillion ?? openAIPricing?.inputPerMillion}
+          output={customPricing ? model.outputPerMillion : openAIPricing?.outputPerMillion}
+          editable={customPricing}
+          available={customPricing || Boolean(openAIPricing)}
+          onChange={(field, value) => updateVendorModel(index, field, value)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PricingFields({ currency, input, cached, output, editable, available, onChange }) {
+  return (
+    <div className="pricing-fields">
+      <CurrencySelect value={currency || "USD"} disabled={!editable} onChange={(value) => onChange("pricingCurrency", value)} />
+      <PriceInput label="Input / 1M" value={input ?? ""} onChange={(value) => onChange("inputPerMillion", value)} numeric readOnly={!editable} unavailable={!available} />
+      <PriceInput label="Cached / 1M" value={cached ?? ""} onChange={(value) => onChange("cachedInputPerMillion", value)} numeric optional readOnly={!editable} unavailable={!available} />
+      <PriceInput label="Output / 1M" value={output ?? ""} onChange={(value) => onChange("outputPerMillion", value)} numeric readOnly={!editable} unavailable={!available} />
+    </div>
+  );
+}
+
+function CurrencySelect({ value, disabled = false, onChange }) {
+  const normalizedCurrency = String(value || "USD").trim().toUpperCase();
+  const currency = currencyOptions.includes(normalizedCurrency) ? normalizedCurrency : "USD";
+
+  return (
+    <label className="price-input">
+      <span>Currency</span>
+      <div className="price-select">
+        <select value={currency} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+          {currencyOptions.map((option) => <option value={option} key={option}>{option}</option>)}
+        </select>
+        <ChevronDown aria-hidden="true" size={15} />
+      </div>
+    </label>
+  );
+}
+
+function PriceInput({ label, value, onChange, numeric = false, optional = false, readOnly = false, unavailable = false }) {
+  return (
+    <label className="price-input">
+      <span>{label}</span>
+      <input
+        value={value}
+        inputMode={numeric ? "decimal" : "text"}
+        placeholder={unavailable ? "Not available" : optional ? "Same as input" : ""}
+        readOnly={readOnly}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function UsagePage({ usage, refreshUsage, busy }) {
+  const [vendorFilter, setVendorFilter] = useState("");
+  const [modelFilter, setModelFilter] = useState("");
+
+  useEffect(() => {
+    setVendorFilter(usage?.filters?.vendor || "");
+    setModelFilter(usage?.filters?.model || "");
+  }, [usage?.filters?.vendor, usage?.filters?.model]);
+
+  if (!usage) {
+    return (
+      <div className="usage-empty panel">
+        <Loader2 className={busy === "usage" ? "spin" : ""} size={22} />
+        <span>{busy === "usage" ? "Loading usage..." : "No usage data loaded."}</span>
+      </div>
+    );
+  }
+
+  const periods = [
+    ["Today", usage.periods.day],
+    ["This week", usage.periods.week],
+    ["This month", usage.periods.month],
+  ];
+
+  function applyFilters(vendor, model) {
+    setVendorFilter(vendor);
+    setModelFilter(model);
+    void refreshUsage({ vendor, model });
+  }
+
+  return (
+    <div className="usage-page">
+      <div className="usage-toolbar">
+        <div className="usage-actions">
+          <UsageFilter
+            label="Vendor"
+            value={vendorFilter}
+            options={usage.filters.vendors}
+            allLabel="All vendors"
+            disabled={busy === "usage"}
+            onChange={(value) => applyFilters(value, modelFilter)}
+          />
+          <UsageFilter
+            label="Model"
+            value={modelFilter}
+            options={usage.filters.models}
+            allLabel="All models"
+            disabled={busy === "usage"}
+            onChange={(value) => applyFilters(vendorFilter, value)}
+          />
+          <ActionButton
+            icon={RefreshCw}
+            label="Refresh"
+            busy={busy === "usage"}
+            onClick={() => refreshUsage({ vendor: vendorFilter, model: modelFilter })}
+          />
+        </div>
+      </div>
+
+      <div className="usage-periods">
+        {periods.map(([label, period]) => <UsagePeriod key={label} label={label} period={period} />)}
+      </div>
+
+      <section className="panel usage-chart-panel">
+        <UsageChart days={usage.daily} />
+      </section>
+    </div>
+  );
+}
+
+function UsageFilter({ label, value, options, allLabel, disabled, onChange }) {
+  return (
+    <label className="usage-filter">
+      <span>{label}</span>
+      <div className="usage-filter-select">
+        <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+          <option value="">{allLabel}</option>
+          {options.map((option) => <option value={option} key={option}>{option}</option>)}
+        </select>
+        <ChevronDown aria-hidden="true" size={15} />
+      </div>
+    </label>
+  );
+}
+
+function UsagePeriod({ label, period }) {
+  return (
+    <section className="usage-period">
+      <div className="usage-period-label">{label}</div>
+      <div className="usage-key-metrics">
+        <div className="usage-key-metric">
+          <span>Token usage</span>
+          <strong>{formatTokenCount(period.totalTokens)}</strong>
+        </div>
+        <div className="usage-key-metric">
+          <span>Est. cost</span>
+          <strong>{formatCosts(period.costs)}</strong>
+        </div>
+      </div>
+      <div className="usage-primary-metrics">
+        <div className="usage-period-metric">
+          <span>Input</span>
+          <strong>{formatTokenCount(period.inputTokens)}</strong>
+        </div>
+        <div className="usage-period-metric">
+          <span>Output</span>
+          <strong>{formatTokenCount(period.outputTokens)}</strong>
+        </div>
+      </div>
+      <div className="usage-secondary-metrics">
+        <div className="usage-period-metric">
+          <span>Requests</span>
+          <strong>{period.requestCount.toLocaleString()}</strong>
+        </div>
+        <div className="usage-period-metric">
+          <span>Coverage</span>
+          <strong>{formatPercent(period.usageCoverage)}</strong>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function UsageChart({ days }) {
+  const chartMaximum = niceChartMaximum(Math.max(1, ...days.map((day) => day.totalTokens)));
+  const modelTotals = new Map();
+  for (const day of days) {
+    for (const model of day.models || []) {
+      modelTotals.set(model.name, (modelTotals.get(model.name) || 0) + model.totalTokens);
+    }
+  }
+  const rankedModels = [...modelTotals.entries()]
+    .filter(([, total]) => total > 0)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  const visibleModels = rankedModels.slice(0, 5).map(([name]) => name);
+  const hasOtherModels = rankedModels.length > visibleModels.length;
+  const legendModels = [...visibleModels, ...(hasOtherModels ? ["Other"] : [])];
+  const modelColors = new Map(legendModels.map((name, index) => [name, usageModelColor(index, name)]));
+  const ticks = [chartMaximum, chartMaximum * 0.75, chartMaximum * 0.5, chartMaximum * 0.25, 0];
+
+  return (
+    <div className="usage-trend">
+      <div className="usage-chart-legend" aria-label="Chart legend">
+        {legendModels.map((model) => (
+          <span key={model} title={model}>
+            <i style={{ "--series-color": modelColors.get(model) }} />
+            {model}
+          </span>
+        ))}
+      </div>
+
+      <div className="usage-chart-layout">
+        <div className="usage-chart-y-axis" aria-hidden="true">
+          {ticks.map((tick) => <span key={tick}>{formatCompactTokenCount(tick)}</span>)}
+        </div>
+        <div className="usage-chart-plot" aria-label="Token usage for the last 30 days">
+          <div className="usage-chart-grid" aria-hidden="true">
+            {ticks.map((tick) => <span key={tick} />)}
+          </div>
+          <div className="usage-chart-bars">
+            {days.map((day, index) => {
+              const segments = usageModelSegments(day, visibleModels, hasOtherModels, modelColors);
+              return (
+                <div className="usage-chart-column" key={day.date}>
+                  <div className="usage-chart-stack">
+                    {segments.map((segment) => (
+                      <i
+                        key={segment.name}
+                        style={{
+                          "--segment-height": `${segment.totalTokens / chartMaximum * 100}%`,
+                          "--series-color": segment.color,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <UsageChartTooltip day={day} segments={segments} edge={index < 3 ? "start" : index > days.length - 4 ? "end" : ""} />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div aria-hidden="true" />
+        <div className="usage-chart-x-axis" aria-hidden="true">
+          {days.map((day, index) => (
+            <span key={day.date}>{(index === 0 || index === days.length - 1 || index % 7 === 0) ? day.date.slice(5) : ""}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UsageChartTooltip({ day, segments, edge }) {
+  return (
+    <div className={`usage-chart-tooltip ${edge ? `is-${edge}` : ""}`}>
+      <strong>{day.date}</strong>
+      <dl>
+        <div><dt>Total tokens</dt><dd>{formatTokenCount(day.totalTokens)}</dd></div>
+        <div><dt>Input</dt><dd>{formatTokenCount(day.inputTokens)}</dd></div>
+        <div><dt>Output</dt><dd>{formatTokenCount(day.outputTokens)}</dd></div>
+        <div><dt>Est. cost</dt><dd>{formatCosts(day.costs)}</dd></div>
+      </dl>
+      {segments.length > 1 && (
+        <div className="usage-chart-tooltip-models">
+          {segments.filter((segment) => segment.totalTokens > 0).map((segment) => (
+            <span key={segment.name}>
+              <i style={{ "--series-color": segment.color }} />
+              <b title={segment.name}>{segment.name}</b>
+              {formatTokenCount(segment.totalTokens)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function usageModelSegments(day, visibleModels, hasOtherModels, modelColors) {
+  const totals = new Map((day.models || []).map((model) => [model.name, model.totalTokens]));
+  const segments = visibleModels.map((name) => ({ name, totalTokens: totals.get(name) || 0, color: modelColors.get(name) }));
+  if (hasOtherModels) {
+    segments.push({
+      name: "Other",
+      totalTokens: (day.models || []).reduce((sum, model) => sum + (visibleModels.includes(model.name) ? 0 : model.totalTokens), 0),
+      color: modelColors.get("Other"),
+    });
+  }
+  return segments;
+}
+
+function usageModelColor(index, model) {
+  if (model === "Other") {
+    return "#64748b";
+  }
+  const colors = ["#3b82f6", "#14b8a6", "#f59e0b", "#f43f5e", "#8b5cf6", "#84cc16"];
+  return colors[index % colors.length];
+}
+
+function niceChartMaximum(value) {
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const normalized = value / magnitude;
+  const rounded = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return rounded * magnitude;
+}
+
+function formatCompactTokenCount(value) {
+  return new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatTokenCount(value) {
+  return Number(value || 0).toLocaleString();
+}
+
+function formatPercent(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`;
+}
+
+function formatCosts(costs) {
+  if (!Array.isArray(costs) || !costs.length) {
+    return "Cost unavailable";
+  }
+  return costs.map(({ currency, amount }) => new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency,
+    maximumFractionDigits: amount < 0.01 ? 6 : 2,
+  }).format(amount)).join(" + ");
 }
 
 function LogsPage({ logs, refreshLogs, loadOlderLogs, openLog, openConfig, busy }) {
