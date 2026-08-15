@@ -70,14 +70,22 @@ jobs:
             }
           }
 
+      - name: Stage Windows release assets
+        shell: pwsh
+        run: |
+          $staging = "release-staging/windows"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Get-ChildItem -Path "release/local-model-router-Setup-*.exe" -ErrorAction Stop |
+            Copy-Item -Destination $staging
+          Get-ChildItem -Path "release/local-model-router-Setup-*.exe.blockmap" -ErrorAction Stop |
+            Copy-Item -Destination $staging
+          Copy-Item -Path "release/latest.yml" -Destination $staging -ErrorAction Stop
+
       - name: Upload Windows release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: windows-release
-          path: |
-            release/local-model-router-Setup-*.exe
-            release/local-model-router-Setup-*.exe.blockmap
-            release/latest.yml
+          path: release-staging/windows
           if-no-files-found: error
 
   build-macos:
@@ -162,16 +170,29 @@ jobs:
             }
           }
 
+      - name: Stage macOS release assets
+        shell: pwsh
+        run: |
+          $staging = "release-staging/macos"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          $assets = @(
+            "release/local-model-router-*-mac-universal.dmg",
+            "release/local-model-router-*-mac-universal.dmg.blockmap",
+            "release/local-model-router-*-mac-universal.zip",
+            "release/local-model-router-*-mac-universal.zip.blockmap",
+            "release/latest-mac.yml"
+          )
+          foreach ($pattern in $assets) {
+            $files = Get-ChildItem -Path $pattern -ErrorAction Stop
+            if (-not $files) { throw "No files matched: $pattern" }
+            $files | Copy-Item -Destination $staging
+          }
+
       - name: Upload macOS release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: macos-release
-          path: |
-            release/local-model-router-*-mac-universal.dmg
-            release/local-model-router-*-mac-universal.dmg.blockmap
-            release/local-model-router-*-mac-universal.zip
-            release/local-model-router-*-mac-universal.zip.blockmap
-            release/latest-mac.yml
+          path: release-staging/macos
           if-no-files-found: error
 
   publish:
@@ -180,7 +201,7 @@ jobs:
 
     steps:
       - name: Download release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: "*-release"
           path: release-assets
