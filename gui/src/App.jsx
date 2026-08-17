@@ -469,10 +469,23 @@ export default function App() {
   }
 
   function updateVendorEditorModel(modelIndex, field, value) {
+    if (field === "enableThinking" && value === true) {
+      setModal({ type: "enableThinking", modelIndex });
+      return;
+    }
     setVendorEditorDraft((current) => {
       const models = getVendorModels(current).map((model, index) => (index === modelIndex ? { ...model, [field]: value } : model));
       return { ...current, models };
     });
+  }
+
+  function confirmEnableThinking() {
+    const modelIndex = modal.modelIndex;
+    setVendorEditorDraft((current) => {
+      const models = getVendorModels(current).map((model, index) => (index === modelIndex ? { ...model, enableThinking: true } : model));
+      return { ...current, models };
+    });
+    setModal(null);
   }
 
   function addVendorEditorModel() {
@@ -825,6 +838,26 @@ export default function App() {
             </button>
             <button type="button" className="button danger" onClick={confirmRevertVendorEditor}>
               Revert
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {modal?.type === "enableThinking" && (
+        <Modal title="Enable thinking mode" onClose={() => setModal(null)} tone="attention">
+          <p className="modal-message">
+            This only works for models served by a vLLM endpoint that supports the
+            <code> chat_template_kwargs.enable_thinking</code> parameter.
+          </p>
+          <p className="modal-message">
+            For any other model or deployment, keep it off: the parameter is ignored or rejected by the upstream.
+          </p>
+          <div className="modal-actions">
+            <button type="button" className="button" onClick={() => setModal(null)}>
+              Cancel
+            </button>
+            <button type="button" className="button" onClick={confirmEnableThinking}>
+              Enable
             </button>
           </div>
         </Modal>
@@ -1562,6 +1595,19 @@ function ModelPricingRow({
           </select>
           <ChevronDown aria-hidden="true" size={16} />
         </div>
+        <label
+          className="toggle-row compact thinking-toggle"
+          title="Send chat_template_kwargs.enable_thinking=true to the upstream. Only valid for models served by a vLLM endpoint that supports this parameter; keep it off for any other vendor or deployment."
+        >
+          <input
+            className="checkbox"
+            type="checkbox"
+            checked={model.enableThinking === true}
+            onChange={(event) => updateVendorModel(index, "enableThinking", event.target.checked)}
+            aria-label="Enable thinking mode for this model"
+          />
+          <span>Thinking</span>
+        </label>
         <button type="button" className="icon-command danger" onClick={() => removeVendorModel(index)} title="Remove model">
           <Trash2 size={16} />
         </button>

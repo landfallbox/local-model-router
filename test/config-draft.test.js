@@ -25,6 +25,17 @@ assert.deepEqual(roundTrip.vendors[0].models, [{ id: "legacy-model", enabled: tr
 assert.equal(roundTrip.vendors[0].model, undefined);
 assert.equal(draft.vendors[0].requestFormat, "chat-completions");
 assert.equal(roundTrip.vendors[0].requestFormat, "chat-completions");
+assert.equal(roundTrip.vendors[0].models[0].enableThinking, undefined);
+
+const thinkingRoundTrip = toConfig(toDraft(normalizeConfig({
+  router: { apiKey: "test-token" },
+  vendors: [{
+    name: "local-vllm",
+    baseUrl: "http://127.0.0.1:8000/v1",
+    models: [{ id: "model-id", enabled: true, enableThinking: true }],
+  }],
+})));
+assert.equal(thinkingRoundTrip.vendors[0].models[0].enableThinking, true);
 
 const responsesRoundTrip = toConfig(toDraft(normalizeConfig({
   router: { apiKey: "test-token" },

@@ -50,6 +50,7 @@ In the GUI, set:
 - `models[].id`: a model name this vendor can serve.
 - `models[].pricing`: optional pricing mode. `custom` uses explicit input, cached-input, and output prices per one million tokens; `openai` and `deepseek` select the built-in provider catalog for the model id.
 - `authentication`: `none` or `api-key`.
+- `models[].enableThinking`: optional, default `false`. When `true`, the Router adds `chat_template_kwargs.enable_thinking: true` to upstream requests for that model. This only works for models served by a vLLM endpoint that supports the parameter; keep it off for any other vendor or deployment.
 
 Each vendor can support multiple models. Requests are routed only to vendors that list the requested model id, and the same model id is sent to the selected upstream provider.
 

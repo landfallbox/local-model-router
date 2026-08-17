@@ -47,6 +47,20 @@
       "enabled": false
     },
     {
+      "name": "local-vllm-vendor",
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      "models": [
+        {
+          "id": "model-id",
+          "enabled": true,
+          "enableThinking": true
+        }
+      ],
+      "authentication": "none",
+      "requestFormat": "chat-completions",
+      "enabled": false
+    },
+    {
       "name": "fallback-vendor",
       "baseUrl": "https://api.fallback.example/v1",
       "models": [

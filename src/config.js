@@ -56,6 +56,7 @@ export const vendorModelSchema = z.object({
   id: z.string().trim().optional().default(""),
   enabled: z.boolean().optional().default(true),
   pricing: modelPricingSchema.optional(),
+  enableThinking: z.boolean().optional().default(false),
 }).passthrough();
 
 export const vendorSchema = z.object({
@@ -283,6 +284,11 @@ function normalizeVendorModel(model, fallbackId) {
     normalized.pricing = pricing;
   } else {
     delete normalized.pricing;
+  }
+  if (model?.enableThinking === true) {
+    normalized.enableThinking = true;
+  } else {
+    delete normalized.enableThinking;
   }
   return normalized;
 }

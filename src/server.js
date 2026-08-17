@@ -177,6 +177,14 @@ async function callVendor(vendor, requestBody, inboundFormat, signal) {
   const upstreamFormat = normalizeRequestFormat(vendor.requestFormat);
   const body = convertRequestBody(requestBody, inboundFormat, upstreamFormat, vendor.selectedModel.id);
 
+  if (vendor.selectedModel?.enableThinking === true) {
+    body.chat_template_kwargs = { ...(body.chat_template_kwargs || {}), enable_thinking: true };
+  }
+
+  if (process.env.LOCAL_MODEL_ROUTER_DEV_MODE === "1") {
+    console.log(`[DEV] upstream request to ${vendor.name} (${buildUpstreamUrl(vendor, upstreamFormat)}):`, JSON.stringify(body, null, 2));
+  }
+
   const response = await fetch(buildUpstreamUrl(vendor, upstreamFormat), {
     method: "POST",
     headers: buildUpstreamHeaders(vendor),
@@ -267,6 +275,7 @@ async function pipeUpstreamWithUsage(upstream, res, format) {
 function createSseUsageTracker(format, onUsage) {
   const decoder = new StringDecoder("utf8");
   let pending = "";
+  let devChunkCount = 0;
 
   function inspectText(text, flush = false) {
     pending += text;
@@ -279,6 +288,10 @@ function createSseUsageTracker(format, onUsage) {
       }
       try {
         const event = JSON.parse(payload);
+        if (process.env.LOCAL_MODEL_ROUTER_DEV_MODE === "1" && devChunkCount < 5) {
+          devChunkCount++;
+          console.log(`[DEV] upstream SSE chunk #${devChunkCount}:`, payload);
+        }
         const usage = normalizeUsage(event, format) || normalizeUsage(event.response, format);
         if (usage) {
           onUsage(usage);
@@ -322,6 +335,9 @@ async function handleGeneration(req, res, config, logger, circuitBreaker, usageS
   const requestId = randomUUID();
   const startedAt = Date.now();
   const requestBody = await readJsonBody(req, config.router.maxBodyBytes);
+  if (process.env.LOCAL_MODEL_ROUTER_DEV_MODE === "1") {
+    console.log("[DEV] inbound request body:", JSON.stringify(requestBody, null, 2));
+  }
   const requestedModel = String(requestBody.model || config.model.id).trim() || config.model.id;
   const vendors = getVendorsForModel(config.vendors, requestedModel);
   const failures = [];

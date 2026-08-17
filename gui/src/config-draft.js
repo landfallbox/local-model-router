@@ -155,6 +155,7 @@ export function toConfig(draft) {
           ...(model.pricingMode === "deepseek" ? {
             pricing: { mode: "deepseek" },
           } : {}),
+          ...(model.enableThinking === true ? { enableThinking: true } : {}),
         })),
         authentication: vendor.authentication === "api-key" ? "api-key" : "none",
         apiKeyHeader: vendor.apiKeyHeader || "authorization",

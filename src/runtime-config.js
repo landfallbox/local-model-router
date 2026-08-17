@@ -43,7 +43,11 @@ function normalizeRuntimeVendorModels(vendor, defaultModelId) {
   const models = Array.isArray(vendor.models) ? vendor.models : [];
   if (!models.length) {
     const id = String(vendor.model || defaultModelId || "model-id").trim();
-    return [{ id, enabled: true }];
+    const model = { id, enabled: true };
+    if (vendor.enableThinking === true) {
+      model.enableThinking = true;
+    }
+    return [model];
   }
 
   return models
@@ -74,5 +78,6 @@ function vendorFromEnvironment(prefix, fallbackName) {
     requestFormat: process.env[`${prefix}_REQUEST_FORMAT`] === "responses" ? "responses" : "chat-completions",
     authentication: apiKey ? "api-key" : "none",
     enabled: true,
+    enableThinking: process.env[`${prefix}_ENABLE_THINKING`] === "1",
   };
 }
