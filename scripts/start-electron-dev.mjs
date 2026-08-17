@@ -39,6 +39,7 @@ const electron = spawn(electronPath, [projectRoot, ...forwardedArgs], {
     LOCAL_MODEL_ROUTER_DATA_DIR: devRouterDataDir,
     LOCAL_MODEL_ROUTER_DEFAULT_PORT: process.env.LOCAL_MODEL_ROUTER_DEFAULT_PORT || (mockUpdateErrorArg ? "4300" : isMockUpdate ? "4200" : "4100"),
     LOCAL_MODEL_ROUTER_DEV_MODE: "1",
+    LOCAL_MODEL_ROUTER_LOG_LEVEL: process.env.LOCAL_MODEL_ROUTER_LOG_LEVEL || "debug",
     LOCAL_MODEL_ROUTER_MOCK_UPDATE: mockUpdateErrorArg ? "download-error" : mockUpdateArg ? "available" : process.env.LOCAL_MODEL_ROUTER_MOCK_UPDATE,
     LOCAL_MODEL_ROUTER_START_HIDDEN: startsHidden ? "1" : process.env.LOCAL_MODEL_ROUTER_START_HIDDEN,
     LOCAL_MODEL_ROUTER_USER_DATA_DIR: devUserDataDir,

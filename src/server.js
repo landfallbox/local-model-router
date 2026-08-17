@@ -173,7 +173,7 @@ function linkClientAbort(req, res, abort) {
   };
 }
 
-async function callVendor(vendor, requestBody, inboundFormat, signal) {
+async function callVendor(vendor, requestBody, inboundFormat, signal, logger) {
   const upstreamFormat = normalizeRequestFormat(vendor.requestFormat);
   const body = convertRequestBody(requestBody, inboundFormat, upstreamFormat, vendor.selectedModel.id);
 
@@ -181,9 +181,11 @@ async function callVendor(vendor, requestBody, inboundFormat, signal) {
     body.chat_template_kwargs = { ...(body.chat_template_kwargs || {}), enable_thinking: true };
   }
 
-  if (process.env.LOCAL_MODEL_ROUTER_DEV_MODE === "1") {
-    console.log(`[DEV] upstream request to ${vendor.name} (${buildUpstreamUrl(vendor, upstreamFormat)}):`, JSON.stringify(body, null, 2));
-  }
+  logger.debug("upstream_request", {
+    vendor: vendor.name,
+    url: buildUpstreamUrl(vendor, upstreamFormat),
+    body,
+  });
 
   const response = await fetch(buildUpstreamUrl(vendor, upstreamFormat), {
     method: "POST",
@@ -258,7 +260,7 @@ function copyUpstreamHeaders(upstream, res, vendorName) {
   res.setHeader("x-router-vendor", vendorName);
 }
 
-async function pipeUpstreamWithUsage(upstream, res, format) {
+async function pipeUpstreamWithUsage(upstream, res, format, logger) {
   if (!upstream.body) {
     res.end();
     return null;
@@ -267,15 +269,15 @@ async function pipeUpstreamWithUsage(upstream, res, format) {
   let usage = null;
   const tracker = createSseUsageTracker(format, (nextUsage) => {
     usage = nextUsage;
-  });
+  }, logger);
   await pipeline(Readable.fromWeb(upstream.body), tracker, res);
   return usage;
 }
 
-function createSseUsageTracker(format, onUsage) {
+function createSseUsageTracker(format, onUsage, logger) {
   const decoder = new StringDecoder("utf8");
   let pending = "";
-  let devChunkCount = 0;
+  let sseChunkCount = 0;
 
   function inspectText(text, flush = false) {
     pending += text;
@@ -288,9 +290,9 @@ function createSseUsageTracker(format, onUsage) {
       }
       try {
         const event = JSON.parse(payload);
-        if (process.env.LOCAL_MODEL_ROUTER_DEV_MODE === "1" && devChunkCount < 5) {
-          devChunkCount++;
-          console.log(`[DEV] upstream SSE chunk #${devChunkCount}:`, payload);
+        if (sseChunkCount < 5) {
+          sseChunkCount++;
+          logger.debug("upstream_sse_chunk", { index: sseChunkCount, payload });
         }
         const usage = normalizeUsage(event, format) || normalizeUsage(event.response, format);
         if (usage) {
@@ -335,9 +337,7 @@ async function handleGeneration(req, res, config, logger, circuitBreaker, usageS
   const requestId = randomUUID();
   const startedAt = Date.now();
   const requestBody = await readJsonBody(req, config.router.maxBodyBytes);
-  if (process.env.LOCAL_MODEL_ROUTER_DEV_MODE === "1") {
-    console.log("[DEV] inbound request body:", JSON.stringify(requestBody, null, 2));
-  }
+  logger.debug("inbound_request", { requestId, body: requestBody });
   const requestedModel = String(requestBody.model || config.model.id).trim() || config.model.id;
   const vendors = getVendorsForModel(config.vendors, requestedModel);
   const failures = [];
@@ -376,7 +376,7 @@ async function handleGeneration(req, res, config, logger, circuitBreaker, usageS
         circuitForcedProbe: circuitPermission.forced,
       });
 
-      const { response: upstream, upstreamFormat } = await callVendor(vendor, requestBody, inboundFormat, timeout.signal);
+      const { response: upstream, upstreamFormat } = await callVendor(vendor, requestBody, inboundFormat, timeout.signal, logger);
       // requestTimeoutMs limits connection and response-header wait time. Once a
       // vendor responds, long-running streams may continue until completion or
       // until the client disconnects.
@@ -446,7 +446,7 @@ async function handleGeneration(req, res, config, logger, circuitBreaker, usageS
       };
       if (responseIsStream) {
         copyUpstreamHeaders(upstream, res, vendor.name);
-        const usage = await pipeUpstreamWithUsage(upstream, res, upstreamFormat);
+        const usage = await pipeUpstreamWithUsage(upstream, res, upstreamFormat, logger);
         recordUsage(usageStore, logger, usageContext, usage, vendor.selectedModel.pricing);
       } else {
         const upstreamText = await upstream.text();

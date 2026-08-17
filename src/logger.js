@@ -2,11 +2,20 @@ import { createWriteStream, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { isPlainObject } from "./config.js";
 
+const LOG_LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
+
+function resolveLogLevel(value) {
+  const normalized = String(value || "info").trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(LOG_LEVELS, normalized) ? normalized : "info";
+}
+
 /** Creates the process logger. Sensitive fields are redacted recursively before serialization. */
 export function createLogger(config, runtimeRoot) {
   const logFile = config.router.logFile;
   const resolvedLogFile = isAbsolute(logFile) ? logFile : resolve(runtimeRoot, logFile);
   mkdirSync(dirname(resolvedLogFile), { recursive: true });
+
+  const threshold = LOG_LEVELS[resolveLogLevel(process.env.LOCAL_MODEL_ROUTER_LOG_LEVEL)];
 
   const stream = createWriteStream(resolvedLogFile, { flags: "a" });
   stream.on("error", (error) => {
@@ -18,10 +27,18 @@ export function createLogger(config, runtimeRoot) {
     }));
   });
 
+  const log = (level, event, data = {}) => {
+    if (LOG_LEVELS[level] < threshold) {
+      return;
+    }
+    writeLog(stream, level, event, data);
+  };
+
   return {
-    info: (event, data = {}) => writeLog(stream, "info", event, data),
-    warn: (event, data = {}) => writeLog(stream, "warn", event, data),
-    error: (event, data = {}) => writeLog(stream, "error", event, data),
+    debug: (event, data) => log("debug", event, data),
+    info: (event, data) => log("info", event, data),
+    warn: (event, data) => log("warn", event, data),
+    error: (event, data) => log("error", event, data),
     close: (callback) => stream.end(callback),
   };
 }
