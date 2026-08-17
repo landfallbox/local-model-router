@@ -46,11 +46,16 @@ const customPricingSchema = z.object({
   cachedInputPerMillion: z.number().nonnegative().nullable().optional().default(null),
   outputPerMillion: z.number().nonnegative(),
 });
+const modelPricingSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("openai") }),
+  z.object({ mode: z.literal("deepseek") }),
+  customPricingSchema,
+]);
 
 export const vendorModelSchema = z.object({
   id: z.string().trim().optional().default(""),
   enabled: z.boolean().optional().default(true),
-  pricing: customPricingSchema.optional(),
+  pricing: modelPricingSchema.optional(),
 }).passthrough();
 
 export const vendorSchema = z.object({
@@ -283,7 +288,13 @@ function normalizeVendorModel(model, fallbackId) {
 }
 
 function normalizeModelPricing(value) {
-  if (!value || value.mode !== "custom") {
+  if (!value) {
+    return undefined;
+  }
+  if (value.mode === "openai" || value.mode === "deepseek") {
+    return { mode: value.mode };
+  }
+  if (value.mode !== "custom") {
     return undefined;
   }
   return {

@@ -50,10 +50,10 @@ function normalizeVendorModelForDraft(model, fallbackId) {
   }
 
   const hasExplicitId = Object.prototype.hasOwnProperty.call(model, "id");
-  const pricing = model.pricing?.mode === "custom" ? model.pricing : null;
-  const pricingMode = ["openai", "custom"].includes(model.pricingMode)
+  const pricing = model.pricing && ["openai", "deepseek", "custom"].includes(model.pricing.mode) ? model.pricing : null;
+  const pricingMode = ["openai", "deepseek", "custom"].includes(model.pricingMode)
     ? model.pricingMode
-    : pricing ? "custom" : "openai";
+    : pricing ? pricing.mode : "openai";
   return {
     ...model,
     id: String(hasExplicitId ? model.id || "" : model.model || fallbackId).trim(),
@@ -151,6 +151,9 @@ export function toConfig(draft) {
               cachedInputPerMillion: optionalNonnegativeNumber(model.cachedInputPerMillion, "Cached input price"),
               outputPerMillion: requiredNonnegativeNumber(model.outputPerMillion, "Output price"),
             },
+          } : {}),
+          ...(model.pricingMode === "deepseek" ? {
+            pricing: { mode: "deepseek" },
           } : {}),
         })),
         authentication: vendor.authentication === "api-key" ? "api-key" : "none",

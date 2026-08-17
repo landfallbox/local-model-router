@@ -48,12 +48,12 @@ In the GUI, set:
 - `vendors`: upstream providers in priority order.
 - `baseUrl`: the upstream API base URL, usually ending in `/v1`.
 - `models[].id`: a model name this vendor can serve.
-- `models[].pricing`: optional custom input, cached-input, and output prices per one million tokens.
+- `models[].pricing`: optional pricing mode. `custom` uses explicit input, cached-input, and output prices per one million tokens; `openai` and `deepseek` select the built-in provider catalog for the model id.
 - `authentication`: `none` or `api-key`.
 
 Each vendor can support multiple models. Requests are routed only to vendors that list the requested model id, and the same model id is sent to the selected upstream provider.
 
-The Usage page reports daily, weekly, and monthly input/output token totals, a 30-day trend, and current-month vendor/model breakdowns. Known OpenAI model ids use the standard USD API prices published at <https://developers.openai.com/api/docs/pricing>; the bundled catalog records its update date in `src/usage.js`. Select `Custom` in Vendor Settings to override prices or price non-OpenAI models. Each event stores its price snapshot so later configuration changes do not rewrite historical estimates.
+The Usage page reports daily, weekly, and monthly input/output token totals, a 30-day trend, and current-month vendor/model breakdowns. Known model ids use the standard USD API prices published at <https://developers.openai.com/api/docs/pricing> and <https://api-docs.deepseek.com/quick_start/pricing>; the bundled catalogs record their update dates in `src/usage.js`. DeepSeek moved to peak/off-peak billing on 2026-08-16, so DeepSeek estimates pick the peak or off-peak rate card from the request's UTC hour (peak hours 01:00-04:00 and 06:00-10:00 UTC). Select `Custom` in Vendor Settings to override prices or price models outside the built-in catalogs. Each event stores its price snapshot so later configuration changes do not rewrite historical estimates.
 
 Keep `config.json` private. It is ignored by git and may contain API keys. The desktop app manages the Router process and performs health checks internally.
 
@@ -110,7 +110,7 @@ The main runtime boundaries are:
 - `src/vendor-circuit-breaker.js`: per-vendor, per-model passive failure tracking and half-open recovery.
 - `src/runtime-config.js`: file and environment configuration for the Router process.
 - `src/logger.js`: structured logging and recursive secret redaction.
-- `src/usage.js`: usage normalization and OpenAI/custom token pricing.
+- `src/usage.js`: usage normalization and provider catalog (OpenAI, DeepSeek peak/off-peak) / custom token pricing.
 - `src/usage-store.js`: monthly JSONL persistence and local-calendar aggregation.
 - `gui/electron/main.js`: Electron lifecycle, tray, IPC registration, and orchestration.
 - `gui/electron/config-store.js`: validated, revision-checked, atomic configuration writes.

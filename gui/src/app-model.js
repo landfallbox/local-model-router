@@ -1,4 +1,5 @@
 import { getVendorModels } from "./config-draft.js";
+import { getCatalogPriceView } from "../../src/usage.js";
 
 export function getVendorModelOptions(vendor, availableModels = []) {
   return [
@@ -95,6 +96,17 @@ export function endpointsFromDraft(draft) {
     chatCompletions: `${baseUrl}/chat/completions`,
     responses: `${baseUrl}/responses`,
   };
+}
+
+export function suggestCatalogSwitch(pricingMode, modelId) {
+  if (pricingMode === "custom" || !modelId) {
+    return null;
+  }
+  if (getCatalogPriceView(pricingMode, modelId)) {
+    return null;
+  }
+  const otherKey = pricingMode === "deepseek" ? "openai" : "deepseek";
+  return getCatalogPriceView(otherKey, modelId) ? otherKey : null;
 }
 
 export function getVendorCircuitSummary(vendorHealth) {
@@ -253,7 +265,7 @@ export function formatLogTime(value) {
   return date.toLocaleString();
 }
 
-function isValidCustomPricing(model) {
+export function isValidCustomPricing(model) {
   return Boolean(String(model.pricingCurrency || "").trim())
     && isNonnegativeNumber(model.inputPerMillion, false)
     && isNonnegativeNumber(model.cachedInputPerMillion, true)

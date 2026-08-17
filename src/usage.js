@@ -1,5 +1,8 @@
 export const OPENAI_PRICING_UPDATED_AT = "2026-08-15";
 export const OPENAI_PRICING_SOURCE = "https://developers.openai.com/api/docs/pricing";
+export const DEEPSEEK_PRICING_UPDATED_AT = "2026-08-16";
+export const DEEPSEEK_PRICING_SOURCE = "https://api-docs.deepseek.com/quick_start/pricing";
+export const DEEPSEEK_PEAK_HOURS = [[1, 4], [6, 10]];
 
 const OPENAI_STANDARD_PRICING = Object.freeze({
   "gpt-5.6-sol": price(5, 0.5, 30),
@@ -43,6 +46,26 @@ const OPENAI_STANDARD_PRICING = Object.freeze({
   "chat-latest": price(5, 0.5, 30),
 });
 
+const DEEPSEEK_STANDARD_PRICING = Object.freeze({
+  "deepseek-v4-flash": rateCards(price(0.44, 0.014, 1.32, "CNY"), price(0.22, 0.007, 0.66, "CNY")),
+  "deepseek-v4-pro": rateCards(price(1.32, 0.044, 3.96, "CNY"), price(0.66, 0.022, 1.98, "CNY")),
+});
+
+export const PRICING_CATALOGS = Object.freeze({
+  openai: {
+    sourceUrl: OPENAI_PRICING_SOURCE,
+    updatedAt: OPENAI_PRICING_UPDATED_AT,
+    peakHours: null,
+    models: OPENAI_STANDARD_PRICING,
+  },
+  deepseek: {
+    sourceUrl: DEEPSEEK_PRICING_SOURCE,
+    updatedAt: DEEPSEEK_PRICING_UPDATED_AT,
+    peakHours: DEEPSEEK_PEAK_HOURS,
+    models: DEEPSEEK_STANDARD_PRICING,
+  },
+});
+
 export function normalizeUsage(body, format) {
   const usage = body?.usage;
   if (!usage || typeof usage !== "object") {
@@ -73,8 +96,8 @@ export function normalizeUsage(body, format) {
   };
 }
 
-export function resolveModelPricing(model, customPricing) {
-  const custom = normalizeCustomPricing(customPricing);
+export function resolveModelPricing(model, pricingConfig, now = new Date()) {
+  const custom = normalizeCustomPricing(pricingConfig);
   if (custom) {
     return {
       ...custom,
@@ -84,15 +107,42 @@ export function resolveModelPricing(model, customPricing) {
     };
   }
 
-  const sourceModel = findOpenAIPriceModel(model);
+  const catalogKey = pricingConfig?.mode === "deepseek" ? "deepseek" : "openai";
+  const catalog = PRICING_CATALOGS[catalogKey];
+  const sourceModel = findCatalogPriceModel(catalog.models, model);
   if (!sourceModel) {
     return null;
   }
+
+  const resolved = resolveCatalogPricing(catalog, sourceModel, now);
   return {
-    ...OPENAI_STANDARD_PRICING[sourceModel],
-    source: "openai",
+    ...resolved.pricing,
+    source: catalogKey,
     sourceModel,
-    updatedAt: OPENAI_PRICING_UPDATED_AT,
+    updatedAt: catalog.updatedAt,
+    ...(resolved.card ? { card: resolved.card } : {}),
+  };
+}
+
+export function getCatalogPriceView(catalogKey, modelId) {
+  const catalog = PRICING_CATALOGS[catalogKey];
+  if (!catalog) {
+    return null;
+  }
+  const sourceModel = findCatalogPriceModel(catalog.models, modelId);
+  if (!sourceModel) {
+    return null;
+  }
+  const entry = catalog.models[sourceModel];
+  const hasRateCards = Boolean(catalog.peakHours && entry.peak && entry.offPeak);
+  return {
+    source: catalogKey,
+    sourceModel,
+    sourceUrl: catalog.sourceUrl,
+    updatedAt: catalog.updatedAt,
+    peakHours: hasRateCards ? catalog.peakHours : null,
+    pricing: hasRateCards ? entry.peak : entry,
+    offPeakPricing: hasRateCards ? entry.offPeak : null,
   };
 }
 
@@ -128,14 +178,29 @@ export function getOpenAIPricingCatalog() {
   return Object.entries(OPENAI_STANDARD_PRICING).map(([model, pricing]) => ({ model, ...pricing }));
 }
 
-function findOpenAIPriceModel(value) {
+function findCatalogPriceModel(catalogModels, value) {
   const model = String(value || "").trim().toLowerCase();
-  if (OPENAI_STANDARD_PRICING[model]) {
+  if (catalogModels[model]) {
     return model;
   }
 
   const baseModel = model.replace(/-\d{4}-\d{2}-\d{2}$/, "");
-  return OPENAI_STANDARD_PRICING[baseModel] ? baseModel : null;
+  return catalogModels[baseModel] ? baseModel : null;
+}
+
+function resolveCatalogPricing(catalog, sourceModel, now) {
+  const entry = catalog.models[sourceModel];
+  if (catalog.peakHours && entry.peak && entry.offPeak) {
+    return isPeakHour(now, catalog.peakHours)
+      ? { card: "peak", pricing: entry.peak }
+      : { card: "off-peak", pricing: entry.offPeak };
+  }
+  return { card: null, pricing: entry };
+}
+
+function isPeakHour(value, peakHours) {
+  const hour = new Date(value).getUTCHours();
+  return peakHours.some(([start, end]) => hour >= start && hour < end);
 }
 
 function normalizeCustomPricing(value) {
@@ -161,8 +226,12 @@ function normalizeCustomPricing(value) {
   };
 }
 
-function price(inputPerMillion, cachedInputPerMillion, outputPerMillion) {
-  return { currency: "USD", inputPerMillion, cachedInputPerMillion, outputPerMillion };
+function price(inputPerMillion, cachedInputPerMillion, outputPerMillion, currency = "USD") {
+  return { currency, inputPerMillion, cachedInputPerMillion, outputPerMillion };
+}
+
+function rateCards(peak, offPeak) {
+  return { peak, offPeak };
 }
 
 function tokenCount(value) {

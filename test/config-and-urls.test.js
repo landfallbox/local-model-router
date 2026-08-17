@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readConfigStore, writeConfigStore } from "../gui/electron/config-store.js";
 import { getChatCompletionsUrl, getResponsesUrl, getRouterBaseUrl } from "../src/router-urls.js";
+import { normalizeConfig, validateConfig, vendorModelSchema } from "../src/config.js";
 
 const tempDirectory = mkdtempSync(join(tmpdir(), "local-router-config-test-"));
 const configPath = join(tempDirectory, "config.json");
@@ -36,6 +37,30 @@ try {
     getResponsesUrl({ router: { host: "::1", port: 4000 } }),
     "http://[::1]:4000/v1/responses",
   );
+
+  assert.equal(vendorModelSchema.safeParse({ id: "m", pricing: { mode: "deepseek" } }).success, true);
+  assert.equal(vendorModelSchema.safeParse({ id: "m", pricing: { mode: "openai" } }).success, true);
+  assert.equal(vendorModelSchema.safeParse({ id: "m", pricing: { mode: "anthropic" } }).success, false);
+  assert.equal(vendorModelSchema.safeParse({
+    id: "m",
+    pricing: { mode: "custom", inputPerMillion: 1, outputPerMillion: 2 },
+  }).success, true);
+  assert.equal(vendorModelSchema.safeParse({
+    id: "m",
+    pricing: { mode: "custom", inputPerMillion: -1, outputPerMillion: 2 },
+  }).success, false);
+
+  const deepseekConfig = normalizeConfig({
+    router: { apiKey: "test-token" },
+    vendors: [{
+      name: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      authentication: "none",
+      models: [{ id: "deepseek-v4-flash", enabled: true, pricing: { mode: "deepseek" } }],
+    }],
+  });
+  assert.deepEqual(deepseekConfig.vendors[0].models[0].pricing, { mode: "deepseek" });
+  validateConfig(deepseekConfig, { requireVendors: false });
 } finally {
   rmSync(tempDirectory, { recursive: true, force: true });
 }

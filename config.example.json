@@ -64,6 +64,28 @@
       "apiKey": "replace-with-fallback-vendor-key",
       "requestFormat": "responses",
       "enabled": false
+    },
+    {
+      "name": "deepseek-vendor",
+      "baseUrl": "https://api.deepseek.com",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "enabled": true,
+          "pricing": {
+            "mode": "deepseek"
+          }
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "enabled": true
+        }
+      ],
+      "authentication": "api-key",
+      "apiKeyHeader": "authorization",
+      "apiKey": "replace-with-deepseek-vendor-key",
+      "requestFormat": "chat-completions",
+      "enabled": false
     }
   ]
 }

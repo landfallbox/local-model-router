@@ -56,13 +56,15 @@ import {
   getVendorModelsLoadMessage,
   getVendorModelsSourceKey,
   getVendorCircuitSummary,
+  isValidCustomPricing,
   parseLogRows,
+  suggestCatalogSwitch,
   validateRouter,
   validateVendor,
 } from "./app-model.js";
 import { useLogsController, useUpdateController, useUsageController } from "./app-controllers.js";
 import { getDesktopApi } from "./desktop-api.js";
-import { resolveModelPricing } from "../../src/usage.js";
+import { getCatalogPriceView } from "../../src/usage.js";
 
 const defaultAppName = "Local Model Router";
 
@@ -1479,7 +1481,9 @@ function VendorEditorPage({
             </div>
             {modelLoadMessage && <small className="field-message warning">{modelLoadMessage}</small>}
             {vendorModelsError?.field === "models" && <small className="field-message error">{vendorModelsError.message}</small>}
-            {vendorValidation.fields.models?.message && <small className="field-message error">{vendorValidation.fields.models.message}</small>}
+            {vendorValidation.fields.models?.message
+              && !/Enter valid non-negative prices/.test(vendorValidation.fields.models.message)
+              && <small className="field-message error">{vendorValidation.fields.models.message}</small>}
           </div>
           <details className="advanced-section wide">
             <summary>
@@ -1514,7 +1518,14 @@ function ModelPricingRow({
   loadVendorModelsOnSelect,
 }) {
   const customPricing = model.pricingMode === "custom";
-  const openAIPricing = resolveModelPricing(model.id);
+  const catalogKey = model.pricingMode === "deepseek" ? "deepseek" : "openai";
+  const pricingView = getCatalogPriceView(catalogKey, model.id);
+  const otherCatalogKey = catalogKey === "deepseek" ? "openai" : "deepseek";
+  const otherPricingView = !customPricing && !pricingView && model.id
+    ? getCatalogPriceView(otherCatalogKey, model.id)
+    : null;
+  const catalogLabel = catalogKey === "deepseek" ? "DeepSeek" : "OpenAI";
+  const otherCatalogLabel = otherCatalogKey === "deepseek" ? "DeepSeek" : "OpenAI";
 
   return (
     <div className="model-pricing-row">
@@ -1533,7 +1544,14 @@ function ModelPricingRow({
             value={model.id || ""}
             onFocus={loadVendorModelsOnSelect}
             onMouseDown={loadVendorModelsOnSelect}
-            onChange={(event) => updateVendorModel(index, "id", event.target.value)}
+            onChange={(event) => {
+              const modelId = event.target.value;
+              updateVendorModel(index, "id", modelId);
+              const switchTo = suggestCatalogSwitch(model.pricingMode, modelId);
+              if (switchTo) {
+                updateVendorModel(index, "pricingMode", switchTo);
+              }
+            }}
           >
             {!model.id && <option value="">Select model</option>}
             {modelOptions.map((modelId) => (
@@ -1550,13 +1568,20 @@ function ModelPricingRow({
       </div>
 
       <div className="pricing-editor">
-        <div className="segmented-control pricing-mode">
+        <div className="segmented-control pricing-mode three">
           <button
             type="button"
-            className={!customPricing ? "active" : ""}
+            className={!customPricing && model.pricingMode !== "deepseek" ? "active" : ""}
             onClick={() => updateVendorModel(index, "pricingMode", "openai")}
           >
-            OpenAI price
+            OpenAI
+          </button>
+          <button
+            type="button"
+            className={model.pricingMode === "deepseek" ? "active" : ""}
+            onClick={() => updateVendorModel(index, "pricingMode", "deepseek")}
+          >
+            DeepSeek
           </button>
           <button
             type="button"
@@ -1567,17 +1592,54 @@ function ModelPricingRow({
           </button>
         </div>
         <PricingFields
-          currency={customPricing ? model.pricingCurrency : openAIPricing?.currency}
-          input={customPricing ? model.inputPerMillion : openAIPricing?.inputPerMillion}
-          cached={customPricing ? model.cachedInputPerMillion : openAIPricing?.cachedInputPerMillion ?? openAIPricing?.inputPerMillion}
-          output={customPricing ? model.outputPerMillion : openAIPricing?.outputPerMillion}
+          currency={customPricing ? model.pricingCurrency : pricingView?.pricing?.currency}
+          input={customPricing ? model.inputPerMillion : pricingView?.pricing?.inputPerMillion}
+          cached={customPricing
+            ? model.cachedInputPerMillion
+            : pricingView?.pricing?.cachedInputPerMillion ?? pricingView?.pricing?.inputPerMillion}
+          output={customPricing ? model.outputPerMillion : pricingView?.pricing?.outputPerMillion}
           editable={customPricing}
-          available={customPricing || Boolean(openAIPricing)}
+          available={customPricing || Boolean(pricingView)}
           onChange={(field, value) => updateVendorModel(index, field, value)}
         />
       </div>
+      {customPricing && !isValidCustomPricing(model) ? (
+        <small className="model-row-message error">
+          Enter valid non-negative prices for {model.id || "this model"}.
+        </small>
+      ) : customPricing ? null : pricingView?.offPeakPricing ? (
+        <small className="model-row-message">
+          Peak {pricingView.pricing.currency} {pricingView.pricing.inputPerMillion} / {pricingView.pricing.cachedInputPerMillion} / {pricingView.pricing.outputPerMillion} per 1M · Off-peak ({formatPeakHours(pricingView.peakHours)}) {pricingView.offPeakPricing.currency} {pricingView.offPeakPricing.inputPerMillion} / {pricingView.offPeakPricing.cachedInputPerMillion} / {pricingView.offPeakPricing.outputPerMillion}
+        </small>
+      ) : !pricingView && model.id ? (
+        <small className="model-row-message">
+          {otherPricingView ? (
+            <>
+              Not in {catalogLabel} —{" "}
+              <button
+                type="button"
+                className="hint-action"
+                onClick={() => updateVendorModel(index, "pricingMode", otherCatalogKey)}
+              >
+                switch to {otherCatalogLabel}
+              </button>
+            </>
+          ) : (
+            `Not in ${catalogLabel} — use Custom`
+          )}
+        </small>
+      ) : null}
     </div>
   );
+}
+
+function formatPeakHours(peakHours) {
+  if (!Array.isArray(peakHours) || !peakHours.length) {
+    return "";
+  }
+  return `${peakHours
+    .map(([start, end]) => `${String(start).padStart(2, "0")}:00–${String(end).padStart(2, "0")}:00`)
+    .join(", ")} UTC`;
 }
 
 function PricingFields({ currency, input, cached, output, editable, available, onChange }) {
@@ -1738,8 +1800,12 @@ function UsagePeriod({ label, period }) {
           <strong>{period.requestCount.toLocaleString()}</strong>
         </div>
         <div className="usage-period-metric">
-          <span>Coverage</span>
+          <span>Usage</span>
           <strong>{formatPercent(period.usageCoverage)}</strong>
+        </div>
+        <div className="usage-period-metric" title="Share of usage-known requests with a resolved price. Below 100% means some requests have no cost (e.g. model not in the selected pricing catalog).">
+          <span>Price</span>
+          <strong className={period.priceCoverage < 1 ? "attention" : ""}>{formatPercent(period.priceCoverage)}</strong>
         </div>
       </div>
     </section>

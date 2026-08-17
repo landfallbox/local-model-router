@@ -1241,7 +1241,7 @@ h2 {
 
 .pricing-editor {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 220px 1fr;
   gap: 10px;
   align-items: end;
 }
@@ -1249,6 +1249,32 @@ h2 {
 .pricing-mode {
   height: 36px;
   min-height: 36px;
+}
+
+.model-row-message {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.model-row-message.error {
+  color: var(--danger);
+}
+
+.hint-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  opacity: 0.85;
+}
+
+.hint-action:hover {
+  opacity: 1;
 }
 
 .pricing-preview {
@@ -1465,7 +1491,7 @@ h2 {
 }
 
 .usage-secondary-metrics {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 14px;
 }
 
@@ -1534,6 +1560,10 @@ h2 {
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.usage-period-metric strong.attention {
+  color: var(--warning);
 }
 
 @container (max-width: 320px) {
