@@ -1549,6 +1549,10 @@ h2 {
   color: var(--success);
 }
 
+.usage-key-metric strong.compact {
+  font-size: 15px;
+}
+
 .usage-key-metric:last-child {
   justify-items: end;
   text-align: right;

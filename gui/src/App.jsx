@@ -1827,7 +1827,7 @@ function UsagePeriod({ label, period }) {
         </div>
         <div className="usage-key-metric">
           <span>Est. cost</span>
-          <strong>{formatCosts(period.costs)}</strong>
+          <strong className={period.costs?.length > 1 ? "compact" : undefined}>{formatCosts(period.costs)}</strong>
         </div>
       </div>
       <div className="usage-primary-metrics">
@@ -1995,15 +1995,28 @@ function formatPercent(value) {
   return `${Math.round(Number(value || 0) * 100)}%`;
 }
 
+function formatCostAmount(currency, amount) {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency,
+    maximumFractionDigits: amount < 0.01 ? 6 : 2,
+  }).format(amount);
+}
+
 function formatCosts(costs) {
   if (!Array.isArray(costs) || !costs.length) {
     return "Cost unavailable";
   }
-  return costs.map(({ currency, amount }) => new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency,
+  const withCode = costs.length > 1;
+  return costs.map(({ currency, amount }) => (
+    withCode ? `${currency} ${formatPlainAmount(amount)}` : formatCostAmount(currency, amount)
+  )).join(" + ");
+}
+
+function formatPlainAmount(amount) {
+  return new Intl.NumberFormat(undefined, {
     maximumFractionDigits: amount < 0.01 ? 6 : 2,
-  }).format(amount)).join(" + ");
+  }).format(amount);
 }
 
 function LogsPage({ logs, refreshLogs, loadOlderLogs, openLog, openConfig, busy }) {
