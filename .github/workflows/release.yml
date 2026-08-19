@@ -200,6 +200,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Download release assets
         uses: actions/download-artifact@v5
         with:
@@ -207,10 +212,27 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Generate release notes
+        id: generate-notes
+        continue-on-error: true
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          RELEASE_NOTES_API_KEY: ${{ secrets.RELEASE_NOTES_API_KEY }}
+          RELEASE_NOTES_BASE_URL: ${{ vars.RELEASE_NOTES_BASE_URL}}
+          RELEASE_NOTES_MODEL: ${{ vars.RELEASE_NOTES_MODEL}}
+        run: |
+          node scripts/generate-release-notes.mjs
+          if [ -s release-notes.md ]; then
+            echo "notes_file=release-notes.md" >> "$GITHUB_OUTPUT"
+          else
+            echo "notes_file=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3.0.2
         with:
           generate_release_notes: true
+          body: ${{ steps.generate-notes.outputs.notes_file != '' && format('file({0})', steps.generate-notes.outputs.notes_file) || '' }}
           fail_on_unmatched_files: true
           files: |
             release-assets/heimdall-Setup-*.exe
