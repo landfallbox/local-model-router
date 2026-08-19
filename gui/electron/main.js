@@ -25,9 +25,9 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HIDDEN_START_ARGS = new Set(["--hidden", "--background", "--minimized", "--tray"]);
-const isDevelopmentRuntime = process.env.LOCAL_MODEL_ROUTER_DEV_MODE === "1";
-const APP_DISPLAY_NAME = isDevelopmentRuntime ? "Local Model Router Dev" : "Local Model Router";
-const APP_USER_MODEL_ID = isDevelopmentRuntime ? "local.local-model-router.dev" : "local.local-model-router";
+const isDevelopmentRuntime = process.env.HEIMDALL_DEV_MODE === "1";
+const APP_DISPLAY_NAME = isDevelopmentRuntime ? "Heimdall Dev" : "Heimdall";
+const APP_USER_MODEL_ID = isDevelopmentRuntime ? "local.heimdall.dev" : "local.heimdall";
 
 let mainWindow = null;
 let isQuitting = false;
@@ -38,7 +38,7 @@ const pendingRouterReloads = new Map();
 const windowsToShowOnReady = new WeakSet();
 
 function resolveAppDir() {
-  const candidates = [process.env.LOCAL_MODEL_ROUTER_APP_DIR];
+  const candidates = [process.env.HEIMDALL_APP_DIR];
 
   if (app.isPackaged) {
     candidates.push(
@@ -64,7 +64,7 @@ function resolveAppDir() {
 
 function getPaths() {
   const appDir = resolveAppDir();
-  const dataDir = process.env.LOCAL_MODEL_ROUTER_DATA_DIR || (app.isPackaged ? app.getPath("userData") : appDir);
+  const dataDir = process.env.HEIMDALL_DATA_DIR || (app.isPackaged ? app.getPath("userData") : appDir);
   const configPath = process.env.ROUTER_CONFIG || join(dataDir, "config.json");
   const serverPath = join(appDir, "src", "server.js");
   const pidPath = join(dataDir, "router.pid");
@@ -83,8 +83,8 @@ function getPaths() {
 }
 
 function resolveNodePath(packageRoot) {
-  if (process.env.LOCAL_MODEL_ROUTER_NODE) {
-    return process.env.LOCAL_MODEL_ROUTER_NODE;
+  if (process.env.HEIMDALL_NODE) {
+    return process.env.HEIMDALL_NODE;
   }
 
   if (app.isPackaged && process.platform === "darwin") {
@@ -109,7 +109,7 @@ function resolveNodePath(packageRoot) {
 function resolveAppIconPath() {
   const iconName = process.platform === "darwin" ? "icon.png" : "icon.ico";
   const candidates = [
-    process.env.LOCAL_MODEL_ROUTER_ICON,
+    process.env.HEIMDALL_ICON,
     app.isPackaged ? join(process.resourcesPath, "assets", iconName) : "",
     resolve(__dirname, "..", "..", "build", iconName),
   ];
@@ -133,7 +133,7 @@ function createTrayIcon() {
   }
 
   const candidates = [
-    process.env.LOCAL_MODEL_ROUTER_TRAY_ICON,
+    process.env.HEIMDALL_TRAY_ICON,
     app.isPackaged ? join(process.resourcesPath, "assets", "trayTemplate.png") : "",
     resolve(__dirname, "..", "..", "build", "trayTemplate.png"),
   ];
@@ -156,7 +156,7 @@ function ensureConfigFile(paths = getPaths()) {
   }
 
   mkdirSync(dirname(paths.configPath), { recursive: true });
-  const defaultPort = clampNumber(process.env.LOCAL_MODEL_ROUTER_DEFAULT_PORT, DEFAULT_CONFIG.router.port, 1, 65535);
+  const defaultPort = clampNumber(process.env.HEIMDALL_DEFAULT_PORT, DEFAULT_CONFIG.router.port, 1, 65535);
   const config = normalizeConfig({
     ...DEFAULT_CONFIG,
     router: {
@@ -169,7 +169,7 @@ function ensureConfigFile(paths = getPaths()) {
 }
 
 function configureRuntimeIdentity() {
-  const userDataDir = process.env.LOCAL_MODEL_ROUTER_USER_DATA_DIR;
+  const userDataDir = process.env.HEIMDALL_USER_DATA_DIR;
   if (userDataDir) {
     mkdirSync(userDataDir, { recursive: true });
     app.setPath("userData", userDataDir);
@@ -458,9 +458,9 @@ async function startRouterInternal() {
         ...process.env,
         ...(app.isPackaged && process.platform === "darwin" ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
         ROUTER_CONFIG: paths.configPath,
-        LOCAL_MODEL_ROUTER_DATA_DIR: paths.dataDir,
-        LOCAL_MODEL_ROUTER_INSTANCE_ID: instanceId,
-        LOCAL_MODEL_ROUTER_MANAGEMENT_TOKEN: managementToken,
+        HEIMDALL_DATA_DIR: paths.dataDir,
+        HEIMDALL_INSTANCE_ID: instanceId,
+        HEIMDALL_MANAGEMENT_TOKEN: managementToken,
       },
       stdio: ["ignore", processLogFd, processLogFd, "ipc"],
       windowsHide: true,
@@ -848,7 +848,7 @@ async function getAppState() {
 }
 
 function hasHiddenStartArg(args = process.argv) {
-  return args.some((arg) => HIDDEN_START_ARGS.has(String(arg).toLowerCase())) || process.env.LOCAL_MODEL_ROUTER_START_HIDDEN === "1";
+  return args.some((arg) => HIDDEN_START_ARGS.has(String(arg).toLowerCase())) || process.env.HEIMDALL_START_HIDDEN === "1";
 }
 
 function isBackgroundStartup() {
@@ -873,7 +873,7 @@ async function installDownloadedUpdate() {
   try {
     await stopRouter();
   } catch (error) {
-    trayController.showNotification("Local Model Router", `Failed to stop Router before update: ${error.message || String(error)}`);
+    trayController.showNotification("Heimdall", `Failed to stop Router before update: ${error.message || String(error)}`);
     isQuitting = false;
     trayController.setBusy("");
     throw error;
@@ -902,11 +902,11 @@ async function startRouterForBackgroundStartup() {
 
     const result = await startRouter();
     if (!result.health?.ok) {
-      trayController.showNotification("Local Model Router startup issue", healthDetail(result.health));
+      trayController.showNotification("Heimdall startup issue", healthDetail(result.health));
     }
   } catch (error) {
     await trayController.refreshStatus().catch(() => null);
-    trayController.showNotification("Local Model Router failed to start", error.message || String(error));
+    trayController.showNotification("Heimdall failed to start", error.message || String(error));
   }
 }
 
@@ -970,7 +970,7 @@ async function handleWindowClose(window) {
       window.hide();
     }
   } catch (error) {
-    trayController.showNotification("Local Model Router", `Failed to read close behavior: ${error.message || String(error)}`);
+    trayController.showNotification("Heimdall", `Failed to read close behavior: ${error.message || String(error)}`);
     requestWindowCloseConfirmation(window);
   }
 }
@@ -986,7 +986,7 @@ async function quitApplication() {
   try {
     await stopRouter();
   } catch (error) {
-    trayController.showNotification("Local Model Router", `Failed to stop Router: ${error.message || String(error)}`);
+    trayController.showNotification("Heimdall", `Failed to stop Router: ${error.message || String(error)}`);
   } finally {
     trayController.dispose();
     app.quit();
@@ -1184,7 +1184,7 @@ if (!hasSingleInstanceLock) {
       const { config } = await loadConfig();
       applyPackagedLoginStartup(config.app.startAtLogin);
     } catch (error) {
-      trayController.showNotification("Local Model Router", `Failed to load startup settings: ${error.message || String(error)}`);
+      trayController.showNotification("Heimdall", `Failed to load startup settings: ${error.message || String(error)}`);
     }
     initializeUpdater();
     onUpdateState(handleUpdateStateChanged);

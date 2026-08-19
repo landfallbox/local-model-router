@@ -1,7 +1,7 @@
 export function getDesktopApi() {
-  if (!window.localModelRouter) {
-    throw new Error("Desktop API is unavailable. Close this window and reopen the app with npm run gui or dist\\LocalModelRouter\\gui.ps1.");
+  if (!window.heimdall) {
+    throw new Error("Desktop API is unavailable. Close this window and reopen the app with npm run gui or dist\\Heimdall\\gui.ps1.");
   }
 
-  return window.localModelRouter;
+  return window.heimdall;
 }

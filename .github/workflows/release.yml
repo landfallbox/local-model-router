@@ -60,8 +60,8 @@ jobs:
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $assets = @(
-            "release/local-model-router-Setup-$version.exe",
-            "release/local-model-router-Setup-$version.exe.blockmap",
+            "release/heimdall-Setup-$version.exe",
+            "release/heimdall-Setup-$version.exe.blockmap",
             "release/latest.yml"
           )
           foreach ($asset in $assets) {
@@ -75,9 +75,9 @@ jobs:
         run: |
           $staging = "release-staging/windows"
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
-          Get-ChildItem -Path "release/local-model-router-Setup-*.exe" -ErrorAction Stop |
+          Get-ChildItem -Path "release/heimdall-Setup-*.exe" -ErrorAction Stop |
             Copy-Item -Destination $staging
-          Get-ChildItem -Path "release/local-model-router-Setup-*.exe.blockmap" -ErrorAction Stop |
+          Get-ChildItem -Path "release/heimdall-Setup-*.exe.blockmap" -ErrorAction Stop |
             Copy-Item -Destination $staging
           Copy-Item -Path "release/latest.yml" -Destination $staging -ErrorAction Stop
 
@@ -158,10 +158,10 @@ jobs:
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $assets = @(
-            "release/local-model-router-$version-mac-universal.dmg",
-            "release/local-model-router-$version-mac-universal.dmg.blockmap",
-            "release/local-model-router-$version-mac-universal.zip",
-            "release/local-model-router-$version-mac-universal.zip.blockmap",
+            "release/heimdall-$version-mac-universal.dmg",
+            "release/heimdall-$version-mac-universal.dmg.blockmap",
+            "release/heimdall-$version-mac-universal.zip",
+            "release/heimdall-$version-mac-universal.zip.blockmap",
             "release/latest-mac.yml"
           )
           foreach ($asset in $assets) {
@@ -176,10 +176,10 @@ jobs:
           $staging = "release-staging/macos"
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
           $assets = @(
-            "release/local-model-router-*-mac-universal.dmg",
-            "release/local-model-router-*-mac-universal.dmg.blockmap",
-            "release/local-model-router-*-mac-universal.zip",
-            "release/local-model-router-*-mac-universal.zip.blockmap",
+            "release/heimdall-*-mac-universal.dmg",
+            "release/heimdall-*-mac-universal.dmg.blockmap",
+            "release/heimdall-*-mac-universal.zip",
+            "release/heimdall-*-mac-universal.zip.blockmap",
             "release/latest-mac.yml"
           )
           foreach ($pattern in $assets) {
@@ -213,11 +213,11 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            release-assets/local-model-router-Setup-*.exe
-            release-assets/local-model-router-Setup-*.exe.blockmap
+            release-assets/heimdall-Setup-*.exe
+            release-assets/heimdall-Setup-*.exe.blockmap
             release-assets/latest.yml
-            release-assets/local-model-router-*-mac-universal.dmg
-            release-assets/local-model-router-*-mac-universal.dmg.blockmap
-            release-assets/local-model-router-*-mac-universal.zip
-            release-assets/local-model-router-*-mac-universal.zip.blockmap
+            release-assets/heimdall-*-mac-universal.dmg
+            release-assets/heimdall-*-mac-universal.dmg.blockmap
+            release-assets/heimdall-*-mac-universal.zip
+            release-assets/heimdall-*-mac-universal.zip.blockmap
             release-assets/latest-mac.yml

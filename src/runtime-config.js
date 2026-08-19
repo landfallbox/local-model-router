@@ -5,7 +5,7 @@ import { normalizeConfig, validateConfig } from "./config.js";
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 export const projectRoot = resolve(moduleDirectory, "..");
-export const runtimeRoot = process.env.LOCAL_MODEL_ROUTER_DATA_DIR || projectRoot;
+export const runtimeRoot = process.env.HEIMDALL_DATA_DIR || projectRoot;
 
 function readJsonFile(path) {
   return JSON.parse(readFileSync(path, "utf8"));

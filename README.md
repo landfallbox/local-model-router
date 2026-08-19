@@ -1,6 +1,6 @@
-# Local Model Router
+# Heimdall
 
-Local Model Router was created to work around a practical VS Code Copilot BYOK limitation: Copilot can use custom keys and endpoints, but configuring the same model through two different upstream vendors can cause conflicts.
+Heimdall was created to work around a practical VS Code Copilot BYOK limitation: Copilot can use custom keys and endpoints, but configuring the same model through two different upstream vendors can cause conflicts.
 
 This project puts one local OpenAI-compatible endpoint in front of those vendors. The client sees a single stable chat-completions endpoint, while the router handles vendor priority and fallback locally.
 
@@ -26,8 +26,8 @@ The router tries enabled vendors in priority order. If the current vendor times 
 - At least one upstream OpenAI-compatible chat-completions provider.
 
 ```powershell
-git clone https://github.com/landfallbox/local-model-router.git
-cd local-model-router
+git clone https://github.com/landfallbox/heimdall.git
+cd heimdall
 npm install
 copy config.example.json config.json
 npm run gui
@@ -68,7 +68,7 @@ Example client entry:
 
 ```json
 {
-  "name": "Local Model Router",
+  "name": "Heimdall",
   "vendor": "customendpoint",
   "apiKey": "replace-with-your-local-router-token",
   "apiType": "chat-completions",
@@ -100,8 +100,8 @@ Example client entry:
 - Token totals depend on the upstream response's `usage` metadata. Streaming providers that omit final usage are counted as requests but excluded from token and cost totals; the Usage page displays token and price coverage instead of treating missing metadata as zero.
 - Usage events contain request metadata and token counts, not prompts or generated content. They are stored as monthly JSONL files under the platform user-data directory's `usage` folder.
 - Packaged builds store configuration in Electron's platform user-data directory:
-  - Windows: `%APPDATA%\Local Model Router\config.json`.
-  - macOS: `~/Library/Application Support/Local Model Router/config.json`.
+  - Windows: `%APPDATA%\Heimdall\config.json`.
+  - macOS: `~/Library/Application Support/Heimdall/config.json`.
 
 ## Development
 
@@ -180,7 +180,7 @@ npm run gui:update-error
 
 Click `Update available`; the progress bar will stop and change to `Update failed · Retry`.
 
-Set `LOCAL_MODEL_ROUTER_MOCK_UPDATE` before `npm run gui` to preview a specific initial result: `available`, `downloaded`, `not-available`, or `error`. Override the preview version with `LOCAL_MODEL_ROUTER_MOCK_UPDATE_VERSION`.
+Set `HEIMDALL_MOCK_UPDATE` before `npm run gui` to preview a specific initial result: `available`, `downloaded`, `not-available`, or `error`. Override the preview version with `HEIMDALL_MOCK_UPDATE_VERSION`.
 
 Run checks:
 

@@ -37,18 +37,18 @@ export function createTrayController({
       { label: `Current status: ${status.label}`, enabled: false },
       { type: "separator" },
       { label: "Open Settings", click: showSettingsWindow },
-      { label: "Open Logs", click: () => void openLogFile().catch((error) => showNotification("Local Model Router", error.message || String(error))) },
+      { label: "Open Logs", click: () => void openLogFile().catch((error) => showNotification("Heimdall", error.message || String(error))) },
     ];
 
     if (busyAction) {
       items.push({ label: busyAction, enabled: false });
     } else if (status.isRouterActive) {
       items.push(
-        { label: "Stop Router", click: () => void runRouterAction("Stopping Router...", stopRouter, "Local Model Router failed to stop") },
-        { label: "Restart Router", click: () => void runRouterAction("Restarting Router...", restartRouter, "Local Model Router failed to restart", "Local Model Router restart issue") },
+        { label: "Stop Router", click: () => void runRouterAction("Stopping Router...", stopRouter, "Heimdall failed to stop") },
+        { label: "Restart Router", click: () => void runRouterAction("Restarting Router...", restartRouter, "Heimdall failed to restart", "Heimdall restart issue") },
       );
     } else {
-      items.push({ label: "Start Router", click: () => void runRouterAction("Starting Router...", startRouter, "Local Model Router failed to start", "Local Model Router startup issue") });
+      items.push({ label: "Start Router", click: () => void runRouterAction("Starting Router...", startRouter, "Heimdall failed to start", "Heimdall startup issue") });
     }
 
     if (["available", "downloading", "downloaded"].includes(updateState.status)) {
@@ -69,7 +69,7 @@ export function createTrayController({
     );
 
     const routerState = status.isRouterActive ? "Running" : "Stopped";
-    tray.setToolTip(`local_model_router: ${routerState}${status.detail ? `\n${status.detail}` : ""}`);
+    tray.setToolTip(`heimdall: ${routerState}${status.detail ? `\n${status.detail}` : ""}`);
     tray.setContextMenu(Menu.buildFromTemplate(items));
   }
 
@@ -102,7 +102,7 @@ export function createTrayController({
     const nextHealth = health || await getHealth();
     const nextStatus = statusFromHealth(nextHealth);
     if (notifyOnUnexpectedStop && status.isRouterActive && !nextStatus.isRouterActive && !isQuitting()) {
-      showNotification("Local Model Router stopped", nextStatus.detail || "The router process is no longer running.");
+      showNotification("Heimdall stopped", nextStatus.detail || "The router process is no longer running.");
     }
 
     status = nextStatus;
@@ -138,7 +138,7 @@ export function createTrayController({
     try {
       await installUpdate();
     } catch (error) {
-      showNotification("Local Model Router update failed", error.message || String(error));
+      showNotification("Heimdall update failed", error.message || String(error));
     }
   }
 

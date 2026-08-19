@@ -89,7 +89,7 @@ function getRequestPath(req) {
 }
 
 function isAuthorized(req, config, path) {
-  const managementToken = process.env.LOCAL_MODEL_ROUTER_MANAGEMENT_TOKEN;
+  const managementToken = process.env.HEIMDALL_MANAGEMENT_TOKEN;
   if (path === "/health" && managementToken && req.headers["x-router-management-token"] === managementToken) {
     return true;
   }
@@ -593,7 +593,7 @@ function handleHealth(_req, res, runtime) {
   const { config, circuitBreaker } = runtime;
   sendJson(res, 200, {
     ok: true,
-    instanceId: process.env.LOCAL_MODEL_ROUTER_INSTANCE_ID || "",
+    instanceId: process.env.HEIMDALL_INSTANCE_ID || "",
     configRevision: runtime.configRevision,
     restartRequired: runtime.restartFields.length > 0,
     restartFields: runtime.restartFields,

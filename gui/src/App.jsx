@@ -66,7 +66,7 @@ import { useLogsController, useUpdateController, useUsageController } from "./ap
 import { getDesktopApi } from "./desktop-api.js";
 import { getCatalogPriceView } from "../../src/usage.js";
 
-const defaultAppName = "Local Model Router";
+const defaultAppName = "Heimdall";
 
 const navItems = [
   { id: "application", label: "Application", icon: Settings2 },
@@ -1071,7 +1071,7 @@ function AppSettingsPage({ app, setAppSetting, busy }) {
               ))}
             </div>
           </div>
-          <label className="app-setting-row" title="Start Local Model Router after signing in">
+          <label className="app-setting-row" title="Start Heimdall after signing in">
             <span>Start at login</span>
             <input
               className="checkbox"

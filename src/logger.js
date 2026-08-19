@@ -15,7 +15,7 @@ export function createLogger(config, runtimeRoot) {
   const resolvedLogFile = isAbsolute(logFile) ? logFile : resolve(runtimeRoot, logFile);
   mkdirSync(dirname(resolvedLogFile), { recursive: true });
 
-  const threshold = LOG_LEVELS[resolveLogLevel(process.env.LOCAL_MODEL_ROUTER_LOG_LEVEL)];
+  const threshold = LOG_LEVELS[resolveLogLevel(process.env.HEIMDALL_LOG_LEVEL)];
 
   const stream = createWriteStream(resolvedLogFile, { flags: "a" });
   stream.on("error", (error) => {

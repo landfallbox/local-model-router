@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">Local Model Router</title>
+  <title id="title">Heimdall</title>
   <desc id="desc">A dark rounded square with layered model blocks and a routed blue signal.</desc>
   <defs>
     <linearGradient id="bg" x1="58" y1="52" x2="454" y2="460" gradientUnits="userSpaceOnUse">

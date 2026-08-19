@@ -1,18 +1,18 @@
 {
-  "name": "local-model-router",
-  "productName": "Local Model Router",
+  "name": "heimdall",
+  "productName": "Heimdall",
   "version": "0.10.0",
   "description": "Local OpenAI-compatible model router with vendor failover.",
   "author": "tang",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/landfallbox/local-model-router.git"
+    "url": "git+https://github.com/landfallbox/heimdall.git"
   },
   "bugs": {
-    "url": "https://github.com/landfallbox/local-model-router/issues"
+    "url": "https://github.com/landfallbox/heimdall/issues"
   },
-  "homepage": "https://github.com/landfallbox/local-model-router#readme",
+  "homepage": "https://github.com/landfallbox/heimdall#readme",
   "keywords": [
     "openai-compatible",
     "model-router",
@@ -61,8 +61,8 @@
     "node": ">=22.12.0"
   },
   "build": {
-    "appId": "local.local-model-router",
-    "productName": "Local Model Router",
+    "appId": "local.heimdall",
+    "productName": "Heimdall",
     "directories": {
       "output": "release"
     },
@@ -70,7 +70,7 @@
       {
         "provider": "github",
         "owner": "landfallbox",
-        "repo": "local-model-router"
+        "repo": "heimdall"
       }
     ],
     "files": [
@@ -87,7 +87,7 @@
     ],
     "win": {
       "icon": "build/icon.ico",
-      "legalTrademarks": "Local Model Router",
+      "legalTrademarks": "Heimdall",
       "extraResources": [
         {
           "from": "build/bin",
@@ -147,7 +147,7 @@
       "artifactName": "${name}-${version}-mac-${arch}.${ext}"
     },
     "dmg": {
-      "title": "Local Model Router ${version}"
+      "title": "Heimdall ${version}"
     },
     "nsis": {
       "oneClick": false,
@@ -155,11 +155,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Local Model Router",
+      "shortcutName": "Heimdall",
       "include": "build/installer.nsh",
       "installerIcon": "build/installerIcon.ico",
       "uninstallerIcon": "build/uninstallerIcon.ico",
-      "uninstallDisplayName": "Local Model Router"
+      "uninstallDisplayName": "Heimdall"
     }
   }
 }

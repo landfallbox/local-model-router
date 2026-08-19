@@ -1,12 +1,12 @@
 # Contributing
 
-Thanks for helping maintain Local Model Router.
+Thanks for helping maintain Heimdall.
 
 ## Development Setup
 
 ```powershell
-git clone https://github.com/landfallbox/local-model-router.git
-cd local-model-router
+git clone https://github.com/landfallbox/heimdall.git
+cd heimdall
 npm ci
 npm run check
 npm test

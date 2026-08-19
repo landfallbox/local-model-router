@@ -3,12 +3,12 @@ import electronUpdater from "electron-updater";
 import { updateStateSchema } from "./ipc-contracts.js";
 
 const { app, BrowserWindow, shell } = electron;
-const RELEASES_URL = "https://github.com/landfallbox/local-model-router/releases/latest";
-const mockUpdateMode = String(process.env.LOCAL_MODEL_ROUTER_MOCK_UPDATE || "").trim().toLowerCase();
+const RELEASES_URL = "https://github.com/landfallbox/heimdall/releases/latest";
+const mockUpdateMode = String(process.env.HEIMDALL_MOCK_UPDATE || "").trim().toLowerCase();
 const isMockUpdateEnabled = Boolean(!app?.isPackaged && mockUpdateMode);
 const isRealUpdaterSupported = Boolean(app?.isPackaged && ["darwin", "win32"].includes(process.platform));
 const isUpdaterSupported = isRealUpdaterSupported || isMockUpdateEnabled;
-const mockUpdateVersion = String(process.env.LOCAL_MODEL_ROUTER_MOCK_UPDATE_VERSION || "0.3.0-dev-preview").trim();
+const mockUpdateVersion = String(process.env.HEIMDALL_MOCK_UPDATE_VERSION || "0.3.0-dev-preview").trim();
 
 let updateState = createInitialState();
 let initialized = false;
@@ -319,7 +319,7 @@ async function checkForMockUpdate() {
   return update({
     status,
     availableVersion: mockUpdateVersion,
-    releaseName: `Local Model Router ${mockUpdateVersion}`,
+    releaseName: `Heimdall ${mockUpdateVersion}`,
     releaseNotes: "Development-only update preview.",
     progress: status === "downloaded" ? normalizeProgress({ percent: 100, transferred: 104857600, total: 104857600 }) : null,
     error: "",

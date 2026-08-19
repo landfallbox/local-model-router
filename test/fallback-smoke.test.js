@@ -65,7 +65,7 @@ async function startRouter(configPath) {
     env: {
       ...process.env,
       ROUTER_CONFIG: configPath,
-      LOCAL_MODEL_ROUTER_DATA_DIR: tempDir,
+      HEIMDALL_DATA_DIR: tempDir,
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });

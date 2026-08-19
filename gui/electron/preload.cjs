@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("localModelRouter", {
+contextBridge.exposeInMainWorld("heimdall", {
   getState: () => ipcRenderer.invoke("app:getState"),
   rendererReady: () => ipcRenderer.invoke("app:rendererReady"),
   hideToTray: () => ipcRenderer.invoke("app:hideToTray"),

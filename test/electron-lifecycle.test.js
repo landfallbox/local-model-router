@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { _electron as electron } from "playwright";
 
 const projectRoot = resolve(".");
-const testRoot = mkdtempSync(join(tmpdir(), "local-model-router-electron-"));
+const testRoot = mkdtempSync(join(tmpdir(), "heimdall-electron-"));
 const routerDataDir = join(testRoot, "router-data");
 const userDataDir = join(testRoot, "electron-user-data");
 const configPath = join(testRoot, "config.json");
@@ -97,19 +97,19 @@ async function runTest() {
     args: [projectRoot],
     env: {
       ...process.env,
-      LOCAL_MODEL_ROUTER_APP_DIR: projectRoot,
-      LOCAL_MODEL_ROUTER_DATA_DIR: routerDataDir,
-      LOCAL_MODEL_ROUTER_DEV_MODE: "1",
-      LOCAL_MODEL_ROUTER_NODE: process.execPath,
-      LOCAL_MODEL_ROUTER_USER_DATA_DIR: userDataDir,
+      HEIMDALL_APP_DIR: projectRoot,
+      HEIMDALL_DATA_DIR: routerDataDir,
+      HEIMDALL_DEV_MODE: "1",
+      HEIMDALL_NODE: process.execPath,
+      HEIMDALL_USER_DATA_DIR: userDataDir,
       ROUTER_CONFIG: configPath,
     },
   });
 
   const window = await electronApp.firstWindow();
-  await window.waitForFunction(() => Boolean(window.localModelRouter));
+  await window.waitForFunction(() => Boolean(window.heimdall));
 
-  const startResult = await window.evaluate(() => window.localModelRouter.startRouter());
+  const startResult = await window.evaluate(() => window.heimdall.startRouter());
   assert.equal(startResult.started, true, JSON.stringify(startResult));
   assert.equal(startResult.health?.ok, true, JSON.stringify(startResult));
 
@@ -118,9 +118,9 @@ async function runTest() {
     return isProcessRunning(routerPid);
   }, "Electron did not start a managed Router process.");
 
-  const loaded = await window.evaluate(() => window.localModelRouter.loadConfig());
+  const loaded = await window.evaluate(() => window.heimdall.loadConfig());
   const reloadedToken = "electron-reloaded-token";
-  const saveResult = await window.evaluate(({ config, revision, token }) => window.localModelRouter.saveConfig({
+  const saveResult = await window.evaluate(({ config, revision, token }) => window.heimdall.saveConfig({
     config: {
       ...config,
       router: { ...config.router, apiKey: token },
@@ -147,7 +147,7 @@ async function runTest() {
   assert.equal(isProcessRunning(routerPid), true, "Router stopped when the window was only hidden to the tray.");
 
   const appClosed = electronApp.waitForEvent("close");
-  await window.evaluate(() => window.localModelRouter.quitAndStop()).catch(() => null);
+  await window.evaluate(() => window.heimdall.quitAndStop()).catch(() => null);
   await appClosed;
   electronApp = null;
 
